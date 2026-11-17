@@ -1,18 +1,11 @@
-// Solmar Bay — a gta6-01 entry (Node 22, standard library only). The game is
-// this directory's game/ folder: plain static files a desktop browser loads
-// offline (game/index.html and its ES modules, three.js vendored under
-// game/vendor/, no network request). This program hands it in: it copies
-// game/ and screenshots/ from beside this file to /output and writes
-// /output/dossier.json, the summary the judge reads, with the vendored
-// make.fun library.
-//
-// The game itself is an original open-world crime game in a fictional
-// coastal city, Solmar Bay: a procedural 3D city to explore on foot, a
-// third-person camera, a start screen and a minimap HUD in this slice, with
-// driving, traffic, police, missions and combat to come in later slices.
-//
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+// Solmar Bay — slice 1 entry for the make.fun "Make GTA 6" bounty (gta6-01).
+// A playable 3D open-world slice: a golden-hour coastal city you explore on
+// foot, with a third-person camera, HUD and minimap. The game itself is plain
+// static files under game/ (three.js vendored locally, no network at runtime),
+// and this program is the handover: it copies game/ and screenshots/ into the
+// output directory and writes dossier.json, the summary the judge reads.
+// Node 22, standard library only. Outside the grader's container,
+// MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -28,12 +21,10 @@ cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
 mkdirSync(join(out, 'screenshots'), { recursive: true });
 if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 
-// The scorer's limits (from the kit's gate reference): the text cap shapes
-// how much source the dossier carries; the other caps reject an entry the
-// scorer would reject outright — more than 4 screenshots, any screenshot over
-// 256 KiB, more than 993 entries or 48 MiB under game/, or any game/ path
-// over 1000 bytes. game/ shares /output's own 1000-entry cap with
-// screenshots/ and dossier.json, so the game is kept well inside them.
+// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
+// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of game
+// files, in all, or a path under game/ over 1000 bytes: game/ counts beside /output's own 1000-entry cap, its
+// screenshots/ and dossier.json).
 writeFileSync(
   join(out, 'dossier.json'),
   buildDossier(out, {

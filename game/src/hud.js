@@ -1,158 +1,81 @@
-// Solmar Bay — the HUD: the start screen, the in-game readouts (cash, clock,
-// objective, controls hint) and the 2D top-down minimap.
-import { CONFIG } from './config.js';
+// Solmar Bay HUD: cash, wanted stars, objective line, and a live minimap.
+// The minimap is a plain 2D canvas: city blocks as pale rectangles on a dark
+// map, a gold diamond for the current mission spot, and a bright dot for the
+// player, all scaled from the city's world bounds onto the 180x180 canvas.
+export function createHUD() {
+  const cashEl = document.getElementById('cash');
+  const starsEl = document.getElementById('stars');
+  const objectiveEl = document.getElementById('objective');
+  const mapEl = document.getElementById('minimap');
+  const mapCtx = mapEl ? mapEl.getContext('2d') : null;
+  const MAP_SIZE = 180;
+  let objective = 'Explore Solmar Bay';
 
-function el(tag, cls, text) {
-  const node = document.createElement(tag);
-  if (cls) node.className = cls;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
+  function setObjective(text) {
+    objective = text;
+    if (objectiveEl) objectiveEl.textContent = text;
+  }
 
-function formatClock(minutes) {
-  const total = Math.floor(minutes) % (24 * 60);
-  const hh = String(Math.floor(total / 60)).padStart(2, '0');
-  const mm = String(total % 60).padStart(2, '0');
-  return `${hh}:${mm}`;
-}
+  function drawMinimap(playerPos, city) {
+    if (!mapCtx || !playerPos) return;
+    mapCtx.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
+    mapCtx.fillStyle = '#0b1826';
+    mapCtx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
 
-export function createHud(minimapData) {
-  const root = document.getElementById('hud');
+    // World -> canvas scale. Falls back to a fixed span if the city is missing.
+    const bounds = city && city.bounds ? city.bounds : { minX: -162, maxX: 162, minZ: -162, maxZ: 162 };
+    const spanX = bounds.maxX - bounds.minX || 1;
+    const spanZ = bounds.maxZ - bounds.minZ || 1;
+    const toX = (x) => ((x - bounds.minX) / spanX) * MAP_SIZE;
+    const toY = (z) => ((z - bounds.minZ) / spanZ) * MAP_SIZE; // north (-z) at the top
 
-  // --- start screen ---------------------------------------------------------
-  const startScreen = el('div', 'start-screen');
-  startScreen.innerHTML =
-    '<h1>SOLMAR BAY</h1>'
-    + '<p class="tagline">A sun-soaked coastal city. Yours to walk.</p>'
-    + '<p class="story">You just got off the bus at Marlin Plaza with $0 in your pocket '
-    + 'and the whole of Solmar Bay in front of you. Walk the streets, learn the city — '
-    + 'the work comes later.</p>'
-    + '<div class="controls">'
-    + '<div><b>W A S D</b> / arrows — walk</div>'
-    + '<div><b>Shift</b> — run</div>'
-    + '<div><b>Mouse drag</b> — look around</div>'
-    + '</div>'
-    + '<p class="start-prompt">Click or press Enter to start</p>';
-  root.appendChild(startScreen);
-
-  // --- in-game HUD ------------------------------------------------------------
-  const bar = el('div', 'hud-bar hidden');
-  const cash = el('div', 'cash', '$0');
-  const clock = el('div', 'clock', '17:32');
-  const objective = el('div', 'objective', CONFIG.hud.objective);
-  bar.appendChild(cash);
-  bar.appendChild(objective);
-  bar.appendChild(clock);
-  root.appendChild(bar);
-
-  const mapWrap = el('div', 'minimap-wrap hidden');
-  const mapCanvas = document.createElement('canvas');
-  mapCanvas.width = CONFIG.hud.minimapSize;
-  mapCanvas.height = CONFIG.hud.minimapSize;
-  mapCanvas.className = 'minimap';
-  mapWrap.appendChild(mapCanvas);
-  const mapLabel = el('div', 'minimap-label', 'SOLMAR BAY');
-  mapWrap.appendChild(mapLabel);
-  root.appendChild(mapWrap);
-
-  const hint = el('div', 'hint hidden', 'WASD walk · Shift run · drag mouse to look');
-  root.appendChild(hint);
-
-  const hud = {
-    startScreen,
-    bar,
-    mapWrap,
-    hint,
-    cash,
-    clock,
-    objective,
-    mapCanvas,
-    mapCtx: mapCanvas.getContext('2d'),
-
-    showTitle() {
-      startScreen.classList.remove('hidden');
-      bar.classList.add('hidden');
-      mapWrap.classList.add('hidden');
-      hint.classList.add('hidden');
-    },
-    showGame() {
-      startScreen.classList.add('hidden');
-      bar.classList.remove('hidden');
-      mapWrap.classList.remove('hidden');
-      hint.classList.remove('hidden');
-    },
-    setCash(value) {
-      hud.cash.textContent = `$${value}`;
-    },
-    setClock(minutes) {
-      hud.clock.textContent = formatClock(minutes);
-    },
-    setObjective(text) {
-      hud.objective.textContent = text;
-    },
-
-    /** Redraw the minimap: sea, blocks, roads, palms, and the player arrow. */
-    drawMinimap(playerPos, playerHeading) {
-      const ctx = hud.mapCtx;
-      const size = CONFIG.hud.minimapSize;
-      const data = minimapData;
-      const b = data.bounds;
-      const worldW = b.boundX * 2;
-      const worldH = b.boundZMax - b.boundZMin;
-      const scale = size / Math.max(worldW, worldH);
-      const ox = (size - worldW * scale) / 2;
-      const oy = (size - worldH * scale) / 2;
-      const px = (x) => ox + (x + b.boundX) * scale;
-      const pz = (z) => oy + (z - b.boundZMin) * scale;
-
-      ctx.clearRect(0, 0, size, size);
-      ctx.fillStyle = '#20242c';
-      ctx.fillRect(0, 0, size, size);
-      // Sea along the south edge.
-      ctx.fillStyle = '#2fa8d8';
-      ctx.fillRect(0, pz(data.sea.z0), size, size - pz(data.sea.z0));
-      // Sand strip.
-      ctx.fillStyle = '#f0d09a';
-      ctx.fillRect(0, pz(b.beachZ), size, pz(data.sea.z0) - pz(b.beachZ));
-      // Blocks.
-      ctx.fillStyle = '#8a7a68';
-      for (const block of data.blocks) {
-        ctx.fillRect(px(block.x - block.size / 2), pz(block.z - block.size / 2), block.size * scale, block.size * scale);
+    // City blocks as light rectangles.
+    if (city && Array.isArray(city.blocks)) {
+      mapCtx.fillStyle = '#b7a98f';
+      for (const b of city.blocks) {
+        const w = Math.max(2, (b.w / spanX) * MAP_SIZE);
+        const h = Math.max(2, (b.d / spanZ) * MAP_SIZE);
+        mapCtx.fillRect(toX(b.x - b.w / 2), toY(b.z - b.d / 2), w, h);
       }
-      // Roads as pale lines.
-      ctx.strokeStyle = '#c9c2b4';
-      ctx.lineWidth = Math.max(1, 7 * scale);
-      for (const line of data.roads) {
-        ctx.beginPath();
-        ctx.moveTo(px(line), 0);
-        ctx.lineTo(px(line), size);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, pz(line));
-        ctx.lineTo(size, pz(line));
-        ctx.stroke();
+      // Mission marker: a fixed central block, drawn as a gold diamond.
+      const mark = city.blocks[Math.min(21, city.blocks.length - 1)];
+      if (mark) {
+        const mx = toX(mark.x);
+        const my = toY(mark.z);
+        mapCtx.fillStyle = '#ffc93f';
+        mapCtx.beginPath();
+        mapCtx.moveTo(mx, my - 7);
+        mapCtx.lineTo(mx + 7, my);
+        mapCtx.lineTo(mx, my + 7);
+        mapCtx.lineTo(mx - 7, my);
+        mapCtx.closePath();
+        mapCtx.fill();
       }
-      // Player arrow, pointing along the heading.
-      const x = px(playerPos.x);
-      const y = pz(playerPos.z);
-      ctx.save();
-      ctx.translate(x, y);
-      // The arrow is drawn pointing up (north); rotate it to the heading.
-      // Map x is east, map y is south, so heading h needs rotation PI - h.
-      ctx.rotate(Math.PI - playerHeading);
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#111111';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0, -7);
-      ctx.lineTo(5, 6);
-      ctx.lineTo(0, 3);
-      ctx.lineTo(-5, 6);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-    },
-  };
-  return hud;
+    }
+
+    // Player dot, bright with a dark rim so it reads on any block.
+    const px = toX(playerPos.x);
+    const py = toY(playerPos.z);
+    mapCtx.fillStyle = '#0b1826';
+    mapCtx.beginPath();
+    mapCtx.arc(px, py, 6, 0, Math.PI * 2);
+    mapCtx.fill();
+    mapCtx.fillStyle = '#ff5a4e';
+    mapCtx.beginPath();
+    mapCtx.arc(px, py, 4, 0, Math.PI * 2);
+    mapCtx.fill();
+  }
+
+  function update(state) {
+    const cash = state && typeof state.cash === 'number' ? state.cash : 0;
+    const wanted = state && typeof state.wanted === 'number'
+      ? Math.max(0, Math.min(5, Math.round(state.wanted)))
+      : 0;
+    if (cashEl) cashEl.textContent = '$' + cash;
+    if (starsEl) starsEl.textContent = '★'.repeat(wanted) + '☆'.repeat(5 - wanted);
+    if (objectiveEl) objectiveEl.textContent = objective;
+    drawMinimap(state ? state.playerPos : null, state ? state.city : null);
+  }
+
+  return { update, setObjective };
 }

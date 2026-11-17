@@ -1,37 +1,22 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solmar Bay — an open-world crime game</title>
-<link rel="icon" href="data:,">
+<title>Solmar Bay</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #f7b878; font-family: Georgia, 'Times New Roman', serif; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  #hud { position: fixed; inset: 0; pointer-events: none; }
-  .hidden { display: none !important; }
-
-  /* Start screen */
-  .start-screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; background: linear-gradient(to bottom, rgba(40,20,8,0.25), rgba(40,20,8,0.55)); text-shadow: 0 2px 12px rgba(0,0,0,0.6); padding: 0 24px; }
-  .start-screen h1 { font-size: 84px; letter-spacing: 14px; margin: 0 0 8px; font-weight: bold; }
-  .start-screen .tagline { font-size: 22px; font-style: italic; margin: 0 0 18px; }
-  .start-screen .story { font-size: 17px; max-width: 560px; line-height: 1.5; margin: 0 0 22px; }
-  .start-screen .controls { display: flex; gap: 28px; font-size: 15px; margin-bottom: 26px; }
-  .start-screen .controls b { color: #ffd98a; }
-  .start-screen .start-prompt { font-size: 18px; letter-spacing: 2px; animation: pulse 1.6s ease-in-out infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
-
-  /* In-game HUD */
-  .hud-bar { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 20px; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
-  .hud-bar .cash { font-size: 30px; font-weight: bold; color: #7ee787; }
-  .hud-bar .objective { font-size: 17px; font-style: italic; padding-top: 6px; }
-  .hud-bar .clock { font-size: 24px; font-weight: bold; }
-  .minimap-wrap { position: absolute; left: 20px; bottom: 20px; }
-  .minimap { display: block; border: 2px solid rgba(255,255,255,0.75); border-radius: 4px; background: #20242c; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
-  .minimap-label { text-align: center; color: #fff; font-size: 12px; letter-spacing: 3px; margin-top: 5px; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
-  .hint { position: absolute; right: 20px; bottom: 20px; color: #fff; font-size: 14px; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
-
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a2836; font-family: system-ui, sans-serif; }
+  #game-container { position: fixed; inset: 0; }
+  #game-container canvas { display: block; }
+  #hud { position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 24px; padding: 12px 18px; color: #fff; font-weight: 700; font-size: 18px; text-shadow: 0 1px 4px rgba(0,0,0,.7); pointer-events: none; z-index: 5; }
+  #hud span { background: rgba(0,0,0,.35); padding: 4px 10px; border-radius: 6px; }
+  #minimap { position: fixed; right: 14px; bottom: 14px; border: 2px solid rgba(255,255,255,.6); border-radius: 50%; background: rgba(10,20,30,.8); z-index: 5; }
+  #title { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(10,18,28,.72); color: #fff; z-index: 10; text-align: center; }
+  #title h1 { font-size: 64px; margin: 0 0 8px; letter-spacing: 4px; color: #ffd27a; text-shadow: 0 2px 18px rgba(255,170,60,.5); }
+  #title p { font-size: 20px; margin: 0 0 28px; color: #e8ecf1; }
+  #help { list-style: none; padding: 0; margin: 0; font-size: 17px; line-height: 1.9; color: #dfe6ee; }
+  #help li b { color: #ffd27a; }
+  #title .hint { margin-top: 28px; font-size: 15px; color: #9fb0c3; }
 </style>
 <script type="importmap">
 {
@@ -42,9 +27,26 @@
 </script>
 </head>
 <body>
-<canvas id="game" aria-label="Solmar Bay: walk the streets of a sun-soaked coastal city"></canvas>
-<div id="hud"></div>
-<p id="status" role="status" aria-live="polite"></p>
+<div id="game-container"></div>
+<div id="hud">
+  <span id="cash">$0</span>
+  <span id="stars">☆☆☆☆☆</span>
+  <span id="objective">Welcome to Solmar Bay</span>
+</div>
+<canvas id="minimap" width="180" height="180"></canvas>
+<div id="title">
+  <h1>Solmar Bay</h1>
+  <p>Sun, salt air, and one long golden hour to make your name.</p>
+  <ul id="help">
+    <li><b>WASD</b> — move</li>
+    <li><b>Mouse drag</b> — camera</li>
+    <li><b>Shift</b> — run</li>
+    <li><b>Space</b> — jump</li>
+    <li><b>E</b> — interact</li>
+    <li><b>M</b> — mute</li>
+  </ul>
+  <div class="hint">Click anywhere to start</div>
+</div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

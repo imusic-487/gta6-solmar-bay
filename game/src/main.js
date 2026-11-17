@@ -1,143 +1,98 @@
-// Solmar Bay — slice 1: a playable 3D coastal city on foot with a
-// third-person camera, a start screen and a minimap HUD. Static files, no
-// network, three.js vendored under game/vendor/.
-//
-// Boot: build the renderer, lights and city, wire input, then run the loop.
-// ?shot=<name>&seed=<n> stages a fixed scene for screenshots instead of the
-// title screen; window.__game exposes the live state for drivers and tests,
-// and window.__shotReady turns true once a staged scene has rendered.
+// Solmar Bay — bootstrap: renderer, city, player, camera, HUD, game loop.
 import * as THREE from 'three';
-import { CONFIG, PLACES } from './config.js';
+import { CONFIG } from './config.js';
+import { mulberry32 } from './random.js';
 import { buildCity } from './city.js';
-import { createPlayer } from './player.js';
-import { createCamera } from './camera.js';
 import { createInput } from './input.js';
-import { createHud } from './hud.js';
-import { stageShot } from './shots.js';
+import { createPlayer, createPlayerMesh } from './player.js';
+import { createCamera } from './camera.js';
+import { createHUD } from './hud.js';
+import { setupShot } from './shots.js';
 
-const params = new URLSearchParams(window.location.search);
-const shotName = params.get('shot');
-const seed = Number(params.get('seed')) || CONFIG.seed;
+const container = document.getElementById('game-container');
+const titleEl = document.getElementById('title');
 
-const canvas = document.getElementById('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(CONFIG.light.skyBackground);
-scene.fog = new THREE.Fog(CONFIG.light.fogColor, CONFIG.light.fogNear, CONFIG.light.fogFar);
+scene.background = new THREE.Color(CONFIG.colors.sky);
+scene.fog = new THREE.Fog(CONFIG.colors.fog, 280, 640);
 
-const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 900);
-scene.add(camera);
+const rng = mulberry32(CONFIG.seed);
+const city = buildCity(scene, rng);
 
-// Fixed golden-hour light: a warm low sun and a soft sky fill.
-const sun = new THREE.DirectionalLight(CONFIG.light.sunColor, CONFIG.light.sunIntensity);
-sun.position.set(...CONFIG.light.sunPosition);
-scene.add(sun);
-const sky = new THREE.HemisphereLight(
-  CONFIG.light.skyColor,
-  CONFIG.light.groundColor,
-  CONFIG.light.hemisphereIntensity,
-);
-scene.add(sky);
+const player = createPlayer(city.spawn, city.colliders, city.bounds);
+scene.add(player.mesh);
 
-const city = buildCity(scene, seed);
-const player = createPlayer(scene, PLACES.plaza.x, PLACES.plaza.z + 18);
-const follow = createCamera(camera);
-const input = createInput(canvas);
-const hud = createHud(city.minimap);
+const input = createInput();
+const cameraRig = createCamera();
+const hud = createHUD();
+
+let cash = 0;
+let wanted = 0;
+let health = 100;
 
 const game = {
-  state: 'title', // title | playing
-  colliders: city.colliders,
+  state: 'title',
   player,
-  camera: follow,
+  camera: cameraRig,
+  city,
   hud,
-  cash: CONFIG.hud.cash,
-  clockMinutes: CONFIG.light.clockStartMinutes,
-  seed,
-  startGame() {
-    if (game.state !== 'playing') {
-      game.state = 'playing';
-      hud.showGame();
-      hud.setCash(game.cash);
-      hud.setClock(game.clockMinutes);
-      hud.setObjective(CONFIG.hud.objective);
-    }
-  },
-  setState(state) {
-    game.state = state;
-    if (state === 'title') hud.showTitle();
-    else hud.showGame();
-  },
+  setState,
 };
+window.__game = game;
 
-window.__game = {
-  get state() {
-    return game.state;
-  },
-  get playerX() {
-    return player.position.x;
-  },
-  get playerZ() {
-    return player.position.z;
-  },
-  get playerHeading() {
-    return player.heading;
-  },
-  get cash() {
-    return game.cash;
-  },
-  get clockMinutes() {
-    return game.clockMinutes;
-  },
-  get colliders() {
-    return game.colliders.length;
-  },
-};
-window.__shotReady = false;
-
-function startFromTitle() {
-  if (game.state === 'title') game.startGame();
+function setState(s) {
+  game.state = s;
+  if (s === 'play') titleEl.style.display = 'none';
+  else titleEl.style.display = 'flex';
 }
-canvas.addEventListener('click', startFromTitle);
-window.addEventListener('keydown', (event) => {
-  if (event.code === 'Enter' || event.code === 'Space') startFromTitle();
+
+hud.setObjective('Explore Solmar Bay');
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Enter' && game.state === 'title') setState('play');
+  if (e.code === 'KeyM') { /* audio stub — sound arrives in a later slice */ }
+});
+titleEl.addEventListener('click', () => {
+  if (game.state === 'title') setState('play');
 });
 
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
+  cameraRig.camera.aspect = window.innerWidth / window.innerHeight;
+  cameraRig.camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
 const clock = new THREE.Clock();
-let framesRendered = 0;
+const params = new URLSearchParams(window.location.search);
+const shotName = params.get('shot');
+let shotFired = false;
 
-if (shotName) {
-  stageShot(shotName, game);
-}
-
-function animate() {
-  requestAnimationFrame(animate);
+function frame() {
+  requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.05);
-  if (game.state === 'playing') {
-    player.update(dt, input, follow.yaw, game.colliders);
-    follow.update(dt, input, player.position);
-    game.clockMinutes += CONFIG.light.minutesPerSecond * dt;
-    hud.setClock(game.clockMinutes);
-    hud.drawMinimap(player.position, player.heading);
-  } else if (!shotName) {
-    // On the title screen the camera rests where the boot pose put it; keep
-    // rendering so the city stays alive behind it. A staged shot holds its
-    // own pose instead, so the frame stays exactly as staged.
-    follow.apply(player.position, dt);
+  const mouse = input.consumeMouse();
+
+  if (game.state === 'play') {
+    player.update(dt, input, cameraRig.yaw);
+    cameraRig.update(dt, player, mouse.dx, mouse.dy);
+  } else {
+    cameraRig.update(dt, player, 0, 0);
   }
-  renderer.render(scene, camera);
-  framesRendered += 1;
-  if (shotName && framesRendered >= 3) window.__shotReady = true;
+
+  hud.update({ cash, wanted, health, playerPos: player.pos, yaw: player.yaw, city });
+
+  renderer.render(scene, cameraRig.camera);
+
+  if (shotName && !shotFired) {
+    shotFired = true;
+    setupShot(shotName, { camera: cameraRig, player, city, scene, THREE, setState });
+    window.__shotReady = true;
+  }
 }
 
-if (game.state === 'title') hud.showTitle();
-animate();
+frame();

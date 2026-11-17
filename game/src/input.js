@@ -1,65 +1,44 @@
-// Solmar Bay — keyboard and mouse-drag input. The game reads this one object;
-// nothing else touches key or pointer events directly.
-export function createInput(canvas) {
+// Keyboard + mouse-drag input for Solmar Bay.
+// Keys are tracked as a Set of e.code strings; mouse drag deltas are
+// accumulated between consumeMouse() calls and then cleared.
+export function createInput() {
   const keys = new Set();
-  const input = {
-    keys,
-    // Accumulated mouse-drag deltas, consumed by the camera each frame.
-    dragYaw: 0,
-    dragPitch: 0,
-    dragging: false,
-    // True while any of the given codes is held.
-    any(...codes) {
-      return codes.some((code) => keys.has(code));
-    },
-    // Forward/back/strafe as -1, 0 or 1, from WASD or the arrow keys.
-    moveAxes() {
-      const forward = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
-        - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
-      const strafe = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0)
-        - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-      return { forward, strafe };
-    },
-    running() {
-      return keys.has('ShiftLeft') || keys.has('ShiftRight');
-    },
-    consumeDrag() {
-      const out = { yaw: input.dragYaw, pitch: input.dragPitch };
-      input.dragYaw = 0;
-      input.dragPitch = 0;
-      return out;
-    },
-  };
+  let dragX = 0;
+  let dragY = 0;
+  let dragging = false;
 
-  window.addEventListener('keydown', (event) => {
-    keys.add(event.code);
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
-      event.preventDefault();
-    }
+  window.addEventListener('keydown', (e) => {
+    keys.add(e.code);
+    if (e.code === 'Space') e.preventDefault();
   });
-  window.addEventListener('keyup', (event) => keys.delete(event.code));
-  window.addEventListener('blur', () => keys.clear());
+  window.addEventListener('keyup', (e) => {
+    keys.delete(e.code);
+  });
+  window.addEventListener('blur', () => {
+    keys.clear();
+    dragging = false;
+  });
 
-  let lastX = 0;
-  let lastY = 0;
-  canvas.addEventListener('pointerdown', (event) => {
-    input.dragging = true;
-    lastX = event.clientX;
-    lastY = event.clientY;
-    canvas.setPointerCapture(event.pointerId);
+  // A drag only starts on the game canvas itself, so HUD clicks don't spin
+  // the camera. movementX/Y accumulate while the button is held.
+  window.addEventListener('mousedown', (e) => {
+    if (e.target && e.target.tagName === 'CANVAS') dragging = true;
   });
-  canvas.addEventListener('pointermove', (event) => {
-    if (!input.dragging) return;
-    input.dragYaw -= (event.clientX - lastX) * 0.005;
-    input.dragPitch += (event.clientY - lastY) * 0.004;
-    lastX = event.clientX;
-    lastY = event.clientY;
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    dragX += e.movementX || 0;
+    dragY += e.movementY || 0;
   });
-  const endDrag = () => {
-    input.dragging = false;
-  };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
+  window.addEventListener('mouseup', () => {
+    dragging = false;
+  });
 
-  return input;
+  function consumeMouse() {
+    const out = { dx: dragX, dy: dragY };
+    dragX = 0;
+    dragY = 0;
+    return out;
+  }
+
+  return { keys, consumeMouse };
 }
