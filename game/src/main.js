@@ -4,6 +4,8 @@ import { CONFIG } from './config.js';
 import { mulberry32 } from './random.js';
 import { buildCity } from './city.js';
 import { createCars, updateCar, nearestCar } from './cars.js';
+import { createTraffic } from './traffic.js';
+import { createPedestrians } from './pedestrians.js';
 import { createInput } from './input.js';
 import { createPlayer, createPlayerMesh } from './player.js';
 import { createCamera } from './camera.js';
@@ -25,6 +27,8 @@ scene.fog = new THREE.Fog(CONFIG.colors.fog, 280, 640);
 const rng = mulberry32(CONFIG.seed);
 const city = buildCity(scene, rng);
 const { cars } = createCars(scene, city, rng);
+const traffic = createTraffic(scene, city, rng);
+const { peds, update: updatePeds } = createPedestrians(scene, city, rng);
 
 const player = createPlayer(city.spawn, city.colliders, city.bounds);
 scene.add(player.mesh);
@@ -48,6 +52,8 @@ const game = {
   camera: cameraRig,
   city,
   cars,
+  traffic,
+  peds,
   get driving() { return driving; },
   get currentCar() { return currentCar; },
   hud,
@@ -113,8 +119,13 @@ function frame() {
       }
     }
     prevE = eDown;
+    // Slice 3: traffic + pedestrians run every play frame. While driving
+    // the car is the obstacle other road users react to, not the player.
+    const roadUser = driving && currentCar ? currentCar : player;
+    traffic.update(dt, roadUser, cars);
+    updatePeds(dt, roadUser, [...cars, ...traffic.cars]);
     if (driving && currentCar) {
-      updateCar(currentCar, input, dt, city.colliders, city.bounds, cars);
+      updateCar(currentCar, input, dt, city.colliders, city.bounds, [...cars, ...traffic.cars]);
       cameraRig.updateDriving(dt, currentCar);
     } else {
       player.update(dt, input, cameraRig.yaw);
