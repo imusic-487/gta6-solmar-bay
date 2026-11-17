@@ -110,6 +110,29 @@ export function setupShot(name, ctx) {
     return;
   }
 
+  if (name === 'chase') {
+    // Slice 4 chase shot: park the player beside a central-avenue car
+    // and start play. The scratch driver steals it with E (+1 wanted),
+    // waits for a patrol car to close in, and shoots mid-pursuit — the
+    // chase camera + wanted stars take over. The camera is deliberately
+    // NOT locked here so updateDriving() can follow the car.
+    const cars = (typeof window !== 'undefined' && window.__game && window.__game.cars) || [];
+    const anchor = { x: 4, z: -104 };
+    let car = null, best = Infinity;
+    for (const c of cars) {
+      const d = (c.x - anchor.x) * (c.x - anchor.x) + (c.z - anchor.z) * (c.z - anchor.z);
+      if (d < best) { best = d; car = c; }
+    }
+    if (car) {
+      player.pos.set(car.x + 2.5, 0, car.z);
+      if (player.mesh) player.mesh.position.copy(player.pos);
+    } else {
+      placePlayer();
+    }
+    setState('play');
+    return;
+  }
+
   // Unknown name: fall back to the title framing.
   camera.setPose(V(150, 95, 215), V(-10, 18, -30));
 }

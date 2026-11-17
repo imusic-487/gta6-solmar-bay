@@ -6,6 +6,8 @@ import { buildCity } from './city.js';
 import { createCars, updateCar, nearestCar } from './cars.js';
 import { createTraffic } from './traffic.js';
 import { createPedestrians } from './pedestrians.js';
+import { knockDownPed } from './pedestrians.js';
+import { createPolice } from './police.js';
 import { createInput } from './input.js';
 import { createPlayer, createPlayerMesh } from './player.js';
 import { createCamera } from './camera.js';
@@ -29,6 +31,7 @@ const city = buildCity(scene, rng);
 const { cars } = createCars(scene, city, rng);
 const traffic = createTraffic(scene, city, rng);
 const { peds, update: updatePeds } = createPedestrians(scene, city, rng);
+const police = createPolice(scene, city, rng);
 
 const player = createPlayer(city.spawn, city.colliders, city.bounds);
 scene.add(player.mesh);
@@ -54,6 +57,7 @@ const game = {
   cars,
   traffic,
   peds,
+  police,
   get driving() { return driving; },
   get currentCar() { return currentCar; },
   hud,
@@ -101,6 +105,7 @@ function frame() {
         const car = nearestCar(cars, player.pos.x, player.pos.z, 4);
         if (car) {
           driving = true;
+          police.addWanted(1); // Slice 4: stealing a car is a crime (+1 star).
           currentCar = car;
           car.speed = 0;
           player.mesh.visible = false;
@@ -124,6 +129,23 @@ function frame() {
     const roadUser = driving && currentCar ? currentCar : player;
     traffic.update(dt, roadUser, cars);
     updatePeds(dt, roadUser, [...cars, ...traffic.cars]);
+    // Slice 4: police pursuit + wanted stars, synced to the HUD. The
+    // driven car is the pursuit target, not an obstacle: police keep a
+    // gap from every other car so they can close in and ram it.
+    police.update(dt, roadUser, [...cars.filter((c) => c !== currentCar), ...traffic.cars]);
+    wanted = police.getWanted();
+    // Slice 4: hitting a pedestrian with the driven car is a crime
+    // (+1 star). A ped already down does not trigger again.
+    if (driving && currentCar && Math.abs(currentCar.speed) > 3) {
+      for (const ped of peds) {
+        const dx = currentCar.x - ped.x, dz = currentCar.z - ped.z;
+        if (dx * dx + dz * dz < 2.2 * 2.2 && !(ped.knockedDown > 0)) {
+          police.addWanted(1);
+          wanted = police.getWanted();
+          knockDownPed(ped, 4);
+        }
+      }
+    }
     if (driving && currentCar) {
       updateCar(currentCar, input, dt, city.colliders, city.bounds, [...cars, ...traffic.cars]);
       cameraRig.updateDriving(dt, currentCar);

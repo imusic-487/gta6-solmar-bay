@@ -172,6 +172,13 @@ export function updatePedestrians(peds, dt, player, cars, colliders) {
   const playerXZ = readXZ(player);
 
   for (const ped of peds) {
+    // Slice 4: a knocked-down ped stays down (hidden, frozen) until
+    // the timer runs out, then gets back up where they fell.
+    if (ped.knockedDown > 0) {
+      ped.knockedDown -= dt;
+      if (ped.knockedDown <= 0) ped.mesh.visible = true;
+      continue;
+    }
     // --- Near miss? Pause briefly. ---
     let blocked = false;
     if (ped.pause > 0) {
@@ -244,4 +251,14 @@ export function updatePedestrians(peds, dt, player, cars, colliders) {
     ped.mesh.rotation.y = ped.heading;
   }
   return peds;
+}
+
+// Slice 4: knock a pedestrian down — they stay down (hidden, frozen in
+// place) for `seconds`, then get back up where they fell. Returns false
+// if the ped is already down (so one ped cannot re-trigger every frame).
+export function knockDownPed(ped, seconds) {
+  if (!ped || ped.knockedDown > 0) return false;
+  ped.knockedDown = seconds;
+  ped.mesh.visible = false;
+  return true;
 }
