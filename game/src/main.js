@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { mulberry32 } from './random.js';
 import { buildCity } from './city.js';
+import { createCars, updateCar, nearestCar } from './cars.js';
 import { createInput } from './input.js';
 import { createPlayer, createPlayerMesh } from './player.js';
 import { createCamera } from './camera.js';
@@ -23,6 +24,7 @@ scene.fog = new THREE.Fog(CONFIG.colors.fog, 280, 640);
 
 const rng = mulberry32(CONFIG.seed);
 const city = buildCity(scene, rng);
+const { cars } = createCars(scene, city, rng);
 
 const player = createPlayer(city.spawn, city.colliders, city.bounds);
 scene.add(player.mesh);
@@ -35,11 +37,19 @@ let cash = 0;
 let wanted = 0;
 let health = 100;
 
+// Slice 2 driving state: on foot until E enters a nearby car.
+let driving = false;
+let currentCar = null;
+let prevE = false;
+
 const game = {
   state: 'title',
   player,
   camera: cameraRig,
   city,
+  cars,
+  get driving() { return driving; },
+  get currentCar() { return currentCar; },
   hud,
   setState,
 };
@@ -78,13 +88,43 @@ function frame() {
   const mouse = input.consumeMouse();
 
   if (game.state === 'play') {
-    player.update(dt, input, cameraRig.yaw);
-    cameraRig.update(dt, player, mouse.dx, mouse.dy);
+    // E is edge-triggered: enter the nearest car on foot, exit while driving.
+    const eDown = input.keys.has('KeyE');
+    if (eDown && !prevE) {
+      if (!driving) {
+        const car = nearestCar(cars, player.pos.x, player.pos.z, 4);
+        if (car) {
+          driving = true;
+          currentCar = car;
+          car.speed = 0;
+          player.mesh.visible = false;
+          hud.setObjective('Drive — WASD to drive, E to get out');
+        }
+      } else {
+        const car = currentCar;
+        driving = false;
+        currentCar = null;
+        car.speed = 0;
+        // Place the player beside the car (right side, perpendicular to heading).
+        player.pos.set(car.x + Math.cos(car.heading) * 2.5, 0, car.z - Math.sin(car.heading) * 2.5);
+        player.mesh.position.copy(player.pos);
+        player.mesh.visible = true;
+        hud.setObjective('Explore Solmar Bay');
+      }
+    }
+    prevE = eDown;
+    if (driving && currentCar) {
+      updateCar(currentCar, input, dt, city.colliders, city.bounds, cars);
+      cameraRig.updateDriving(dt, currentCar);
+    } else {
+      player.update(dt, input, cameraRig.yaw);
+      cameraRig.update(dt, player, mouse.dx, mouse.dy);
+    }
   } else {
     cameraRig.update(dt, player, 0, 0);
   }
 
-  hud.update({ cash, wanted, health, playerPos: player.pos, yaw: player.yaw, city });
+  hud.update({ cash, wanted, health, playerPos: driving && currentCar ? currentCar : player.pos, yaw: player.yaw, city, driving, speed: driving && currentCar ? currentCar.speed : 0 });
 
   renderer.render(scene, cameraRig.camera);
 

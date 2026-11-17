@@ -36,6 +36,22 @@ export function createCamera() {
     camera.lookAt(player.pos.x, player.pos.y + HEAD_HEIGHT, player.pos.z);
   }
 
+  // Slice 2 chase camera: follow behind the car along its heading,
+  // smoothed, looking ahead of the car. On-foot update() is untouched.
+  function updateDriving(dt, car) {
+    if (locked || !car) return;
+    const fwdX = Math.sin(car.heading);
+    const fwdZ = Math.cos(car.heading);
+    const target = new THREE.Vector3(
+      car.x - fwdX * 9,
+      4.2,
+      car.z - fwdZ * 9
+    );
+    const t = 1 - Math.exp(-6 * dt);
+    camera.position.lerp(target, t);
+    camera.lookAt(car.x + fwdX * 6, 1.2, car.z + fwdZ * 6);
+  }
+
   function setPose(pos, lookAt) {
     camera.position.copy(pos);
     camera.lookAt(lookAt);
@@ -47,6 +63,7 @@ export function createCamera() {
     get yaw() { return yaw; },
     get pitch() { return pitch; },
     update,
+    updateDriving,
     setPose,
   };
 }

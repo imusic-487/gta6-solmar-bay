@@ -11,6 +11,16 @@ export function createHUD() {
   const MAP_SIZE = 180;
   let objective = 'Explore Solmar Bay';
 
+  // Slice 2 speed display: created here (no #speed element in index.html),
+  // appended to the HUD bar so it inherits the #hud span styling.
+  const speedEl = document.createElement('span');
+  speedEl.id = 'speed';
+  speedEl.style.display = 'none';
+  speedEl.textContent = '0 km/h';
+  const hudBarEl = document.getElementById('hud');
+  if (hudBarEl) hudBarEl.appendChild(speedEl);
+  else document.body.appendChild(speedEl);
+
   function setObjective(text) {
     objective = text;
     if (objectiveEl) objectiveEl.textContent = text;
@@ -73,6 +83,13 @@ export function createHUD() {
       : 0;
     if (cashEl) cashEl.textContent = '$' + cash;
     if (starsEl) starsEl.textContent = '★'.repeat(wanted) + '☆'.repeat(5 - wanted);
+    // Slice 2: show km/h while driving, hidden on foot.
+    const isDriving = !!(state && state.driving);
+    const speed = state && typeof state.speed === 'number' ? state.speed : 0;
+    if (speedEl) {
+      speedEl.style.display = isDriving ? '' : 'none';
+      if (isDriving) speedEl.textContent = Math.round(Math.abs(speed) * 3.6) + ' km/h';
+    }
     if (objectiveEl) objectiveEl.textContent = objective;
     drawMinimap(state ? state.playerPos : null, state ? state.city : null);
   }
