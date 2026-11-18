@@ -8,6 +8,7 @@ import { createTraffic } from './traffic.js';
 import { createPedestrians } from './pedestrians.js';
 import { knockDownPed } from './pedestrians.js';
 import { createPolice } from './police.js';
+import { createMissions } from './missions.js';
 import { createInput } from './input.js';
 import { createPlayer, createPlayerMesh } from './player.js';
 import { createCamera } from './camera.js';
@@ -32,6 +33,8 @@ const { cars } = createCars(scene, city, rng);
 const traffic = createTraffic(scene, city, rng);
 const { peds, update: updatePeds } = createPedestrians(scene, city, rng);
 const police = createPolice(scene, city, rng);
+// Slice 5: Bayline courier missions — payout lands here, once per mission.
+const missions = createMissions(scene, city, { onComplete: (m) => { cash += m.reward; } });
 
 const player = createPlayer(city.spawn, city.colliders, city.bounds);
 scene.add(player.mesh);
@@ -58,6 +61,7 @@ const game = {
   traffic,
   peds,
   police,
+  missions,
   get driving() { return driving; },
   get currentCar() { return currentCar; },
   hud,
@@ -134,6 +138,11 @@ function frame() {
     // gap from every other car so they can close in and ram it.
     police.update(dt, roadUser, [...cars.filter((c) => c !== currentCar), ...traffic.cars]);
     wanted = police.getWanted();
+    // Slice 5: courier missions — reach the gold marker; the HUD
+    // objective is pushed every frame, so it overwrites the one-off
+    // steal/exit objective strings set above on the same frame.
+    missions.update(dt, roadUser);
+    hud.setObjective(missions.getObjectiveText());
     // Slice 4: hitting a pedestrian with the driven car is a crime
     // (+1 star). A ped already down does not trigger again.
     if (driving && currentCar && Math.abs(currentCar.speed) > 3) {

@@ -133,6 +133,18 @@ export function setupShot(name, ctx) {
     return;
   }
 
+  if (name === 'mission') {
+    // Slice 5 mission shot: stand the player on the north road just
+    // short of the M1 marker so the gold ring + beam + HUD objective
+    // are all in frame. The player is 8 m from the target — outside
+    // the 5 m arrival radius, so the mission does not complete.
+    player.pos.set(0, 0, -44);
+    if (player.mesh) player.mesh.position.copy(player.pos);
+    setState('play');
+    camera.setPose(V(8, 6, -38), V(0, 1.5, -52));
+    return;
+  }
+
   // Unknown name: fall back to the title framing.
   camera.setPose(V(150, 95, 215), V(-10, 18, -30));
 }
