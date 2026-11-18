@@ -150,6 +150,18 @@ export function setupShot(name, ctx) {
     return;
   }
 
+  if (name === 'failed') {
+    // Slice 7 fail-screen shot: stand the player 2.5 m south of Rocco
+    // (same pose as 'combat') so the DELIVERY FAILED overlay opens
+    // over a street fight. The shoot driver fights health to 0 and
+    // screenshots once the overlay is up.
+    player.pos.set(3.10, 0, -2.06);
+    if (player.mesh) player.mesh.position.copy(player.pos);
+    setState('play');
+    camera.setPose(V(3.10, 4.5, -7.5), V(3.0, 1.3, 1.5));
+    return;
+  }
+
   if (name === 'mission') {
     // Slice 5 mission shot: stand the player on the north road just
     // short of the M1 marker so the gold ring + beam + HUD objective

@@ -1,7 +1,9 @@
 // Solmar Bay — wanted level + police pursuit (slice 4).
 //
 //   const police = createPolice(scene, city, rng);
-//   Returns { cars, update, addWanted, getWanted, getPoliceCount }.
+//   Returns { cars, update, addWanted, getWanted, getPoliceCount, clearWanted }.
+//   clearWanted() (slice 7) — heat back to 0; patrol cars leave on the
+//   next update through the existing wanted<=0 path.
 //   Each car: { mesh, x, z, heading, speed, topSpeed, redLight,
 //   blueLight, flashTimer }; mesh is a THREE.Group facing +Z.
 //   police.update(dt, target, others): target is a driven car
@@ -145,6 +147,12 @@ export function createPolice(scene, city, rng) {
   }
   function getWanted() { return wanted; }
   function getPoliceCount() { return cars.length; }
+
+  // Slice 7 respawn reset: heat drops to zero at once; the patrol
+  // cars stand down on the next update (wanted<=0 removes them).
+  function clearWanted() {
+    wanted = 0;
+  }
 
   // Pick a spot 40-60 m from the target, facing it. Try a few angles
   // so the car never spawns inside a building or on top of the target.
@@ -378,5 +386,5 @@ export function createPolice(scene, city, rng) {
     }
   }
 
-  return { cars, update, addWanted, getWanted, getPoliceCount };
+  return { cars, update, addWanted, getWanted, getPoliceCount, clearWanted };
 }

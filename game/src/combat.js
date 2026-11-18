@@ -21,6 +21,13 @@
 //   opponent hits (clamped at 0, no regen). getKnockouts() —
 //   knockouts so far (0..3). getOpponents() — copies of
 //   { name, x, z, hp, maxHp, knockedOut }.
+//   resetHealth() (slice 7) — health back to 100, punch state cleared
+//   so a held F key cannot fire a punch the instant the player gets
+//   back up. resetOpponents() (slice 7) — living opponents re-roll
+//   to fresh spots 20-30 m from spawn (outside the 8 m aggro range,
+//   so they cannot kill the player again inside the 5 s respawn
+//   protection); hp, flagged and paid are untouched, knocked-out ones
+//   stay down (no second reward, no second wanted star).
 //   All three opponents are original fiction for Solmar Bay —
 //   invented names, invented looks, box-built figures assembled
 //   fresh in this file. No Rockstar names, characters or assets.
@@ -341,6 +348,52 @@ export function createCombat(scene, city, rng, options) {
 
   function getHealth() { return health; }
   function getKnockouts() { return knockouts; }
+
+  // Slice 7 respawn reset: full health, and the punch edge state
+  // cleared so a held F key cannot fire the instant the player
+  // gets back up.
+  function resetHealth() {
+    health = PLAYER_MAX_HP;
+    punchTimer = 0;
+    prevF = false;
+  }
+
+  // Slice 7 respawn reset: a living opponent re-rolls to a fresh spot
+  // on a 20-30 m ring around spawn — far outside the 8 m aggro range,
+  // so it cannot close in and kill the player again inside the 5 s
+  // respawn protection. (Its original spawn spot is 4-7 m out, inside
+  // aggro range, so putting it literally back would re-trigger the
+  // fight at once.) hp is untouched, flagged/paid stay as they were,
+  // and a knocked-out opponent stays down exactly as it fell.
+  function resetSpot() {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const angle = nextRand() * Math.PI * 2;
+      const dist = 20 + nextRand() * 10;
+      const x = spawn.x + Math.sin(angle) * dist;
+      const z = spawn.z + Math.cos(angle) * dist;
+      if (x < bounds.minX + BODY_RADIUS || x > bounds.maxX - BODY_RADIUS ||
+          z < bounds.minZ + BODY_RADIUS || z > bounds.maxZ - BODY_RADIUS) continue;
+      if (!groundIsClear(x, z, colliders, BODY_RADIUS + 0.5)) continue;
+      return { x, z };
+    }
+    return { x: spawn.x + 25, z: spawn.z };
+  }
+
+  function resetOpponents() {
+    for (const opp of opponents) {
+      if (opp.knockedOut) continue;
+      const spot = resetSpot();
+      opp.x = spot.x;
+      opp.z = spot.z;
+      opp.heading = nextRand() * Math.PI * 2;
+      opp.attackTimer = 0;
+      opp.swingTimer = 0;
+      opp.target = null;
+      opp.idleTimer = 1 + nextRand() * 1;
+      opp.mesh.position.set(opp.x, 0, opp.z);
+      opp.mesh.rotation.y = opp.heading;
+    }
+  }
   function getOpponents() {
     return opponents.map((o) => ({
       name: o.name, x: +o.x.toFixed(2), z: +o.z.toFixed(2),
@@ -348,5 +401,5 @@ export function createCombat(scene, city, rng, options) {
     }));
   }
 
-  return { update, getHealth, getKnockouts, getOpponents };
+  return { update, getHealth, getKnockouts, getOpponents, resetHealth, resetOpponents };
 }

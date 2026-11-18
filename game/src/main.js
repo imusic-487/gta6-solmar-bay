@@ -10,6 +10,7 @@ import { knockDownPed } from './pedestrians.js';
 import { createPolice } from './police.js';
 import { createMissions } from './missions.js';
 import { createCombat } from './combat.js';
+import { createDeath } from './death.js';
 import { createInput } from './input.js';
 import { createPlayer, createPlayerMesh } from './player.js';
 import { createCamera } from './camera.js';
@@ -54,6 +55,33 @@ let cash = 0;
 let wanted = 0;
 let health = 100;
 
+// Slice 7: fail + death screens — created after combat / missions /
+// police so every callback has something to call. Cash, knockouts
+// and finished deliveries are never touched by the respawn path.
+const death = createDeath({
+  getHealth: () => combat.getHealth(),
+  getMissionState: () => ({
+    current: missions.getCurrent(),
+    isComplete: missions.isComplete(),
+    completed: missions.getCompleted(),
+  }),
+  respawnPlayer: () => {
+    player.pos.set(city.spawn.x, 0, city.spawn.z);
+    player.mesh.position.copy(player.pos);
+    player.mesh.visible = true;
+    if (driving && currentCar) {
+      currentCar.speed = 0;
+      driving = false;
+      currentCar = null;
+    }
+  },
+  clearWanted: () => police.clearWanted(),
+  resetHealth: () => combat.resetHealth(),
+  resetOpponents: () => combat.resetOpponents(),
+  resetMission: () => missions.resetCurrent(),
+  getStats: () => ({ cash, knockouts: combat.getKnockouts(), completed: missions.getCompleted() }),
+});
+
 // Slice 2 driving state: on foot until E enters a nearby car.
 let driving = false;
 let currentCar = null;
@@ -70,6 +98,7 @@ const game = {
   police,
   missions,
   combat,
+  death,
   get driving() { return driving; },
   get currentCar() { return currentCar; },
   hud,
@@ -109,7 +138,16 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const mouse = input.consumeMouse();
 
-  if (game.state === 'play') {
+  // Slice 7: the death screens watch health every frame, with the
+  // same real dt the other updates get (never a fixed 1/60 — the
+  // headless frame rate is far below 60 fps, and a fixed dt would
+  // drain the respawn protection in slow motion).
+  death.update(dt);
+
+  // Slice 7: while a fail/death screen is up the whole gameplay
+  // block is skipped — player, traffic, peds, police, combat and
+  // missions all stay put. HUD + render keep running below.
+  if (game.state === 'play' && !death.isDead()) {
     // E is edge-triggered: enter the nearest car on foot, exit while driving.
     const eDown = input.keys.has('KeyE');
     if (eDown && !prevE) {
@@ -173,7 +211,10 @@ function frame() {
     // Slice 6: combat steps after the player/car move so player.yaw is
     // fresh for the punch cone; driving skips punches inside update().
     // Player health lives in combat — sync it here for the HUD.
-    combat.update(dt, player, input, driving);
+    // Slice 7: no punches or brawling while respawn protection runs,
+    // so a street opponent next to the spawn cannot land a hit
+    // before the player can move.
+    if (!death.isProtected()) combat.update(dt, player, input, driving);
     health = combat.getHealth();
   } else {
     cameraRig.update(dt, player, 0, 0);

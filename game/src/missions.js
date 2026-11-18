@@ -3,7 +3,9 @@
 //   const missions = createMissions(scene, city, { onComplete });
 //   Returns { update, getCompleted, getTotal, getCurrentIndex, getCurrent,
 //             getCurrentTarget, getMissions, getObjectiveText, isComplete,
-//             marker }.
+//             resetCurrent, marker }.
+//   resetCurrent() (slice 7) — no state change: re-place the marker on
+//   the current delivery's target, for respawn after a failed run.
 //
 //   createMissions(scene, city, options?)
 //     scene — THREE.Scene; city — buildCity() result ({ bounds }); the
@@ -175,6 +177,13 @@ export function createMissions(scene, city, options) {
     if (onComplete) onComplete(done);
   }
 
+  // Slice 7 respawn reset: no state change — just put the marker back
+  // on the current delivery's target (same as placeMarker), so the
+  // interrupted run picks up from the start after a failed screen.
+  function resetCurrent() {
+    placeMarker();
+  }
+
   function getCompleted() { return completed; }
   function getTotal() { return TOTAL; }
   function getCurrentIndex() { return completed; }
@@ -213,6 +222,7 @@ export function createMissions(scene, city, options) {
     getMissions,
     getObjectiveText,
     isComplete,
+    resetCurrent,
     marker,
   };
 }
