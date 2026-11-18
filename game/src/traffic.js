@@ -43,9 +43,16 @@ const TRAFFIC_COUNT = 9;      // one car per loop, nine different blocks
 const LANE = 21;              // loop half-extent from its block centre (m)
 const EDGE_LEN = LANE * 2;    // one side of the road rectangle (m)
 const LOOKAHEAD = 5;          // steer at a point this far ahead on the loop (m)
+const LOOKAHEAD_MIN = 0.4;    // shortest steering lookahead, right at a corner (m)
+const CORNER_SPEED = 0.8;     // m/s at the corner itself — slow enough to turn tight
+const BRAKE_DIST = 12;        // m from a corner to start easing off (and to speed back up after)
+const TURN_HOLD = 0.35;       // rad of heading error: still turning, hold corner speed
+const CREEP_SPEED = 0.8;      // m/s inching forward out of a past-corner deadlock
+const CREEP_CLEAR = 4.5;      // only creep while the blocker is further than this (m)
+const CREEP_TIME = 2.0;       // seconds a latched creep keeps inching through the turn
 const CRUISE_MIN = 6.5;       // m/s, slowest cruiser (~23 km/h)
 const CRUISE_MAX = 9.5;       // m/s, fastest cruiser (~34 km/h)
-const TURN_RATE = 3.0;        // rad/s steering towards the lookahead point
+const TURN_RATE = 5.0;        // rad/s steering towards the lookahead point
 const STOP_AHEAD = 7;         // stop if something is this close ahead (m)
 const SLOW_AHEAD = 14;        // ease off if something is this close (m)
 const LANE_HALF = 2.8;        // only react to things near our lane line (m)
@@ -193,6 +200,7 @@ export function createTraffic(scene, city, rng) {
       cruise: randRange(rng, CRUISE_MIN, CRUISE_MAX),
       shape, color,
       corners,
+      creepTimer: 0, // latched deadlock-escape creep, counts down while inching
     });
   }
 
@@ -269,21 +277,67 @@ function stepCar(car, dt, solids, bounds) {
   if (nearestAhead < STOP_AHEAD) want = 0;
   else if (nearestAhead < SLOW_AHEAD) want = car.cruise * 0.35;
 
+  // Corner approach: the loop's corners are sharp, so a car that takes
+  // one at cruise speed on a 5 m lookahead cuts across it by ~1.5 m.
+  // Ease off on a ramp either side of the corner instead, so the car
+  // is already at ~CORNER_SPEED when the turn starts (a lookahead
+  // before the corner) and turns tight on the lane line: want falls
+  // linearly from cruise BRAKE_DIST out to CORNER_SPEED at the edge
+  // of the turn zone, and climbs back the same way after it.
+  // (The ramp falls slower than BRAKE, so the car always catches it.)
+  const near = nearestOnLoop(car.corners, car.x, car.z);
+  const alongEdge = near.t * EDGE_LEN;
+  const distAhead = EDGE_LEN - alongEdge;   // to the next corner ahead
+  const distToCorner = Math.min(distAhead, alongEdge); // to the nearest corner either way
+  const rampDist = Math.max(0, distToCorner - LOOKAHEAD_MIN);
+  const cornerWant = CORNER_SPEED + (car.cruise - CORNER_SPEED) * Math.min(1, rampDist / BRAKE_DIST);
+  if (cornerWant < want) want = cornerWant;
+
+  // Steering geometry: aim at a point a short way ahead on the loop.
+  // Near a corner the lookahead shortens to the corner itself, so the
+  // car turns at the corner instead of starting the turn metres early
+  // and cutting across it. Computed here, before the speed easing, so
+  // the heading error can hold the speed down through the turn.
+  const lookAhead = Math.max(LOOKAHEAD_MIN, Math.min(LOOKAHEAD, distAhead));
+  const look = pointAhead(car.corners, near.edge, near.t, lookAhead);
+  const wantHeading = Math.atan2(look.x - car.x, look.z - car.z);
+  let diff = wantHeading - car.heading;
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  while (diff < -Math.PI) diff += 2 * Math.PI;
+
+  // Don't speed up mid-turn: while the nose is still well off the
+  // lane's direction, hold the corner speed — accelerating through
+  // the turn widens the arc and cuts the corner again.
+  if (Math.abs(diff) > TURN_HOLD) want = Math.min(want, CORNER_SPEED);
+
+  // Deadlock escape: a parked car can sit on the extension of our lane
+  // just past a corner, so the car stops short of the corner and can
+  // never turn away from it (steering needs motion, motion needs a
+  // clear lane). If the blocker is past the next corner and still a
+  // car's length away, inch forward — the turn takes us away from it.
+  // The creep latches for CREEP_TIME: while the car rotates through
+  // the turn, the blocker slides sideways out of the ahead cone, so
+  // its along-track distance shrinks even though the car is not
+  // closing on it — a plain distance test would cut the creep off
+  // mid-turn and strand the car at the corner.
+  if (want === 0 && car.creepTimer <= 0 && nearestAhead > distAhead + 0.5 && nearestAhead > CREEP_CLEAR) {
+    car.creepTimer = CREEP_TIME;
+  }
+  if (want === 0 && car.creepTimer > 0) {
+    want = CREEP_SPEED;
+    car.creepTimer -= dt;
+  } else if (want > 0) {
+    car.creepTimer = 0;
+  }
+
   // Ease towards that speed: gentle pull-away, firmer braking.
   if (car.speed < want) car.speed = Math.min(want, car.speed + ACCEL * dt);
   else if (car.speed > want) car.speed = Math.max(want, car.speed - BRAKE * dt);
 
-  // Steer at a point a short way ahead on the loop: the car follows
-  // its road rectangle, drifts back onto the lane if it ever leaves
-  // it, and rounds each corner instead of pivoting on it. No steering
-  // while stopped.
+  // Steer at the lookahead point: the car follows its road rectangle,
+  // drifts back onto the lane if it ever leaves it, and rounds each
+  // corner instead of pivoting on it. No steering while stopped.
   if (car.speed > 0.1) {
-    const near = nearestOnLoop(car.corners, car.x, car.z);
-    const look = pointAhead(car.corners, near.edge, near.t, LOOKAHEAD);
-    const wantHeading = Math.atan2(look.x - car.x, look.z - car.z);
-    let diff = wantHeading - car.heading;
-    while (diff > Math.PI) diff -= 2 * Math.PI;
-    while (diff < -Math.PI) diff += 2 * Math.PI;
     const turn = Math.max(-TURN_RATE * dt, Math.min(TURN_RATE * dt, diff));
     car.heading += turn;
   }

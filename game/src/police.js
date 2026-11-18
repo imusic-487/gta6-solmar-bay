@@ -33,6 +33,12 @@ const DECAY_AFTER = 25;      // seconds quiet before the heat drops
 const DECAY_RANGE = 25;      // ... only if no patrol car is this close
 const SEPARATION = 4.2;      // keep at least this far from obstacle cars
 const FLASH_PERIOD = 0.28;   // seconds per light-bar flash phase
+const REVERSE_SPEED = 5;     // m/s backing out of a pocket
+const REVERSE_ACCEL = 20;    // m/s^2 getting up to reverse speed
+const UNSTICK_TIME = 1.0;    // seconds of reversing per escape
+const STUCK_WINDOW = 1.0;    // seconds of trail to judge stillness over
+const STUCK_AFTER = 1.0;     // seconds of stillness before reversing out
+const STUCK_RADIUS = 1.0;    // m: less than this far in STUCK_WINDOW counts as stuck
 
 // Patrol cars wanted by level: 1 star -> 1, 2 -> 2, 3 -> 3, 4-5 -> 4.
 function carsWanted(level) {
@@ -168,6 +174,12 @@ export function createPolice(scene, city, rng) {
       topSpeed: TOP_SPEED_BASE + TOP_SPEED_STEP * Math.max(0, wanted - 1),
       redLight, blueLight, redMat, blueMat,
       flashTimer: nextRand() * FLASH_PERIOD,
+      blocked: false,      // in contact with a building last frame
+      stillFor: 0,         // seconds of stillness while far from the target
+      unstickTimer: 0,     // seconds of reversing left in an escape
+      clock: 0,            // seconds this car has existed (trail time base)
+      trail: [],           // recent { t, x, z } snapshots for stillness checks
+      wallNX: 0, wallNZ: 0, // last building-contact normal (out of the wall)
     });
   }
 
@@ -228,24 +240,66 @@ export function createPolice(scene, city, rng) {
       car.topSpeed = topSpeed;
       const dx = pos.x - car.x, dz = pos.z - car.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
-      if (car.speed < topSpeed) car.speed = Math.min(topSpeed, car.speed + ACCEL * dt);
-      // Seek steering: turn towards the target's current position.
-      if (dist > 0.5 && car.speed > 0.1) {
-        const wantHeading = Math.atan2(dx, dz);
-        let diff = wantHeading - car.heading;
-        while (diff > Math.PI) diff -= 2 * Math.PI;
-        while (diff < -Math.PI) diff += 2 * Math.PI;
-        car.heading += Math.max(-TURN_RATE * dt, Math.min(TURN_RATE * dt, diff));
+      // Unstick: backed into a pocket — reverse straight out for a
+      // second, then chase again. Point the nose into the wall, so
+      // reversing carries the car out along the wall normal instead
+      // of sliding it along the face it is already stuck on.
+      if (car.unstickTimer > 0) {
+        car.unstickTimer -= dt;
+        if (car.wallNX !== 0 || car.wallNZ !== 0) {
+          car.heading = Math.atan2(-car.wallNX, -car.wallNZ);
+        }
+        car.speed = Math.max(-REVERSE_SPEED, car.speed - REVERSE_ACCEL * dt);
+      } else {
+        if (car.speed < topSpeed) car.speed = Math.min(topSpeed, car.speed + ACCEL * dt);
+        // Seek steering: turn towards the target's current position.
+        if (dist > 0.5 && car.speed > 0.1) {
+          const wantHeading = Math.atan2(dx, dz);
+          let diff = wantHeading - car.heading;
+          while (diff > Math.PI) diff -= 2 * Math.PI;
+          while (diff < -Math.PI) diff += 2 * Math.PI;
+          car.heading += Math.max(-TURN_RATE * dt, Math.min(TURN_RATE * dt, diff));
+        }
       }
       car.x += Math.sin(car.heading) * car.speed * dt;
       car.z += Math.cos(car.heading) * car.speed * dt;
 
-      // Buildings are solid: circle vs each AABB, pushed out, slowed.
+      // Buildings are solid: circle vs each AABB, pushed out. Instead
+      // of grinding into the wall — the old code halved the speed on
+      // every contact frame, which pinned a wedged car at ~0.1 m/s —
+      // the car slides along the face: its heading is deflected to
+      // the wall tangent that closes on the target, and it only loses
+      // speed once, on impact.
       if (colliders) {
+        let nx = 0, nz = 0, contacts = 0;
         for (const box of colliders) {
           const fixed = pushOutOfBox(car.x, car.z, BODY_RADIUS, box);
-          if (fixed) { car.x = fixed.x; car.z = fixed.z; car.speed = Math.max(0, car.speed * 0.5); }
+          if (fixed) {
+            const px = fixed.x - car.x, pz = fixed.z - car.z;
+            const pl = Math.hypot(px, pz);
+            if (pl > 1e-6) { nx += px / pl; nz += pz / pl; }
+            car.x = fixed.x; car.z = fixed.z;
+            contacts++;
+          }
         }
+        if (contacts > 0) {
+          const nl = Math.hypot(nx, nz);
+          if (nl > 1e-6) {
+            nx /= nl; nz /= nl;
+            car.wallNX = nx; car.wallNZ = nz;
+            const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+            const into = Math.max(0, -(fx * nx + fz * nz));
+            // Tangent along the wall, pointing the way that closes on
+            // the target.
+            let tx = -nz, tz = nx;
+            if (tx * dx + tz * dz < 0) { tx = -tx; tz = -tz; }
+            car.heading = Math.atan2(tx, tz);
+            if (!car.blocked) car.speed = Math.max(0, car.speed * (1 - 0.5 * into));
+          }
+        } else {
+          car.wallNX = 0; car.wallNZ = 0;
+        }
+        car.blocked = contacts > 0;
       }
       // Keep a gap from obstacle cars (parked + traffic): circle push.
       if (others) {
@@ -264,6 +318,30 @@ export function createPolice(scene, city, rng) {
       // Stay inside the city.
       car.x = Math.max(bounds.minX + BODY_RADIUS, Math.min(bounds.maxX - BODY_RADIUS, car.x));
       car.z = Math.max(bounds.minZ + BODY_RADIUS, Math.min(bounds.maxZ - BODY_RADIUS, car.z));
+
+      // Stuck detection: how far has the car got in the last second?
+      // A wedged car can sit at full speed and still go nowhere — it
+      // grinds along a face, or flickers back and forth across the
+      // target's line — so speed alone cannot show it, and a fixed
+      // anchor keeps getting reset by the flicker. Judge the trail
+      // instead: net displacement over STUCK_WINDOW. Close to the
+      // target the car is ramming, not stuck, so it does not count.
+      car.clock += dt;
+      car.trail.push({ t: car.clock, x: car.x, z: car.z });
+      while (car.trail.length > 1 && car.trail[0].t < car.clock - STUCK_WINDOW) car.trail.shift();
+      const ref = car.trail[0];
+      if (dist > 5 && car.unstickTimer <= 0 && ref && car.clock - ref.t >= STUCK_WINDOW - 0.05) {
+        if (Math.hypot(car.x - ref.x, car.z - ref.z) < STUCK_RADIUS) {
+          if ((car.stillFor += dt) > STUCK_AFTER) {
+            car.unstickTimer = UNSTICK_TIME;
+            car.stillFor = 0;
+          }
+        } else {
+          car.stillFor = 0;
+        }
+      } else {
+        car.stillFor = 0;
+      }
 
       // Ram: close enough to touch — slow the target, bounce back.
       if (dist <= RAM_DIST) {

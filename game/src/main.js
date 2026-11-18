@@ -9,6 +9,7 @@ import { createPedestrians } from './pedestrians.js';
 import { knockDownPed } from './pedestrians.js';
 import { createPolice } from './police.js';
 import { createMissions } from './missions.js';
+import { createCombat } from './combat.js';
 import { createInput } from './input.js';
 import { createPlayer, createPlayerMesh } from './player.js';
 import { createCamera } from './camera.js';
@@ -35,6 +36,12 @@ const { peds, update: updatePeds } = createPedestrians(scene, city, rng);
 const police = createPolice(scene, city, rng);
 // Slice 5: Bayline courier missions — payout lands here, once per mission.
 const missions = createMissions(scene, city, { onComplete: (m) => { cash += m.reward; } });
+// Slice 6: street melee combat — KO payout lands here, once per knockout,
+// like the missions onComplete callback; a first landed punch costs +1 star.
+const combat = createCombat(scene, city, rng, {
+  addWanted: (n) => police.addWanted(n),
+  onKnockout: (r) => { cash += r.reward; },
+});
 
 const player = createPlayer(city.spawn, city.colliders, city.bounds);
 scene.add(player.mesh);
@@ -62,6 +69,7 @@ const game = {
   peds,
   police,
   missions,
+  combat,
   get driving() { return driving; },
   get currentCar() { return currentCar; },
   hud,
@@ -162,6 +170,10 @@ function frame() {
       player.update(dt, input, cameraRig.yaw);
       cameraRig.update(dt, player, mouse.dx, mouse.dy);
     }
+    // Slice 6: combat runs after player.update so player.yaw is fresh;
+    // driving skips punches inside combat.update. Health syncs to the HUD.
+    combat.update(dt, player, input, driving);
+    health = combat.getHealth();
   } else {
     cameraRig.update(dt, player, 0, 0);
   }

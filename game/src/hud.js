@@ -21,6 +21,14 @@ export function createHUD() {
   if (hudBarEl) hudBarEl.appendChild(speedEl);
   else document.body.appendChild(speedEl);
 
+  // Slice 6 health display: same pattern as #speed — a span appended
+  // to the HUD bar, always visible, on foot and while driving.
+  const healthEl = document.createElement('span');
+  healthEl.id = 'health';
+  healthEl.textContent = '♥ 100';
+  if (hudBarEl) hudBarEl.appendChild(healthEl);
+  else document.body.appendChild(healthEl);
+
   function setObjective(text) {
     objective = text;
     if (objectiveEl) objectiveEl.textContent = text;
@@ -90,6 +98,9 @@ export function createHUD() {
       speedEl.style.display = isDriving ? '' : 'none';
       if (isDriving) speedEl.textContent = Math.round(Math.abs(speed) * 3.6) + ' km/h';
     }
+    // Slice 6: health, always shown, on foot and while driving.
+    const health = state && typeof state.health === 'number' ? Math.max(0, Math.round(state.health)) : 100;
+    if (healthEl) healthEl.textContent = '♥ ' + health;
     if (objectiveEl) objectiveEl.textContent = objective;
     drawMinimap(state ? state.playerPos : null, state ? state.city : null);
   }
