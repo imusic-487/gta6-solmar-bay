@@ -36,8 +36,8 @@ const { peds, update: updatePeds } = createPedestrians(scene, city, rng);
 const police = createPolice(scene, city, rng);
 // Slice 5: Bayline courier missions — payout lands here, once per mission.
 const missions = createMissions(scene, city, { onComplete: (m) => { cash += m.reward; } });
-// Slice 6: street melee combat — KO payout lands here, once per knockout,
-// like the missions onComplete callback; a first landed punch costs +1 star.
+// Slice 6: street melee — first punch on an opponent costs a wanted star
+// (via police), a knockout pays $20 into cash, once per opponent.
 const combat = createCombat(scene, city, rng, {
   addWanted: (n) => police.addWanted(n),
   onKnockout: (r) => { cash += r.reward; },
@@ -170,8 +170,9 @@ function frame() {
       player.update(dt, input, cameraRig.yaw);
       cameraRig.update(dt, player, mouse.dx, mouse.dy);
     }
-    // Slice 6: combat runs after player.update so player.yaw is fresh;
-    // driving skips punches inside combat.update. Health syncs to the HUD.
+    // Slice 6: combat steps after the player/car move so player.yaw is
+    // fresh for the punch cone; driving skips punches inside update().
+    // Player health lives in combat — sync it here for the HUD.
     combat.update(dt, player, input, driving);
     health = combat.getHealth();
   } else {

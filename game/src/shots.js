@@ -135,15 +135,14 @@ export function setupShot(name, ctx) {
 
   if (name === 'combat') {
     // Slice 6 combat shot: stand the player 2.5 m south of Rocco,
-    // facing +z so Rocco is dead ahead in the punch cone — outside
-    // the 2 m trigger distance at pose time, but inside aggro range,
-    // so he closes in and swings while the camera holds. The shoot
-    // driver taps F just before the shot.
-    // Seed-1 spawn spots in the WIRED game (shared rng, verified in
-    // the slice-6 play test — NOT the standalone combat-test values):
-    // Rocco (3.10,0.44), Mara (-2.28,2.78), Dune (-3.64,-3.51).
-    // Player (3.10,-2.06) is 2.5 m from Rocco, 7.2 m from Mara,
-    // 6.9 m from Dune — all three chase in, so the frame fills up.
+    // facing +z (player yaw starts at 0, so Rocco is dead ahead in
+    // the punch cone). 2.5 m is outside the 2 m punch trigger at pose
+    // time but inside the 8 m aggro range, so Rocco closes in and
+    // swings while the camera holds; the shoot driver taps F just
+    // before the shot. Seed-1 spawn spots in the wired game (shared
+    // rng — NOT the standalone combat-test values): Rocco (3.10,0.44),
+    // Mara (-2.28,2.78), Dune (-3.64,-3.51). Player (3.10,-2.06) is
+    // 2.5 m from Rocco, ~7 m from the other two, so all three chase in.
     player.pos.set(3.10, 0, -2.06);
     if (player.mesh) player.mesh.position.copy(player.pos);
     setState('play');
