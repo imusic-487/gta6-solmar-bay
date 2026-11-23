@@ -1,36 +1,45 @@
-// Solmar Bay — procedural sound effects (slice 9).
+// Solmar Bay — procedural sound effects (slice 9, redo 9b).
 //
 //   const audio = createAudio();
-//   Returns { init, resume, play, setMuted, isMuted, isReady,
+//   Returns { init, resume, play, playPunch, playKnockout,
+//             playMissionComplete, playFailed, playDead,
+//             setMuted, toggleMute, isMuted, isReady,
 //             getPlayCount, getPlayCounts, sounds }.
 //
-//   Wiring (done by the wiring session, NOT here):
-//     - init() / resume() — call once from a user gesture: the title
-//       screen click / Enter that starts the game (see main.js
-//       startFromTitle). The AudioContext is created ONLY here, never
-//       at module load, so the browser autoplay policy is satisfied
-//       and nothing sounds before the player starts. Calling init()
-//       twice is safe: the second call just resumes the same context.
-//     - play('punch') — combat tryPunch, on a punch that lands.
-//     - play('knockout') — combat onKnockout callback.
-//     - play('missionComplete') — missions onComplete callback.
-//     - play('failed') — death onDeath callback when kind is 'failed'
+//   Wiring (done by Builder C, NOT here):
+//     - createAudio() once in main.js, next to the other systems;
+//       expose it on the `game` object as `game.audio` so tests can
+//       reach it (window.__game.audio).
+//     - init() / resume() — call from a user gesture only: the
+//       title-screen click / Enter that starts the game
+//       (startFromTitle / continueGame / newGame in main.js). The
+//       AudioContext is created ONLY here, never at module load, so
+//       the browser autoplay policy is satisfied and nothing sounds
+//       before the player starts. Calling init() twice is safe: the
+//       second call just resumes the same context.
+//     - playPunch() — combat tryPunch, on a punch that lands
+//       (Builder C adds an onPunch callback to createCombat, fired
+//       next to the existing onKnockout one).
+//     - playKnockout() — combat onKnockout callback in main.js.
+//     - playMissionComplete() — missions onComplete callback in main.js.
+//     - playFailed() — death onDeath callback when kind is 'failed'
 //       (DELIVERY FAILED screen).
-//     - play('dead') — death onDeath callback when kind is 'dead'
+//     - playDead() — death onDeath callback when kind is 'dead'
 //       (OUT COLD screen).
-//     - setMuted(true/false) — the M key handler in main.js; this
-//       module never listens for keys itself.
-//     - getPlayCount(name) — how many times play(name) was requested;
+//     - setMuted(muted) / toggleMute() — the M key handler in main.js
+//       (currently a stub near line 175); this module never listens
+//       for keys itself.
+//     - getPlayCount(name) — how many times a sound was requested;
 //       used by Playwright checks to verify each event really fires
-//       its sound. The count increments on every play() request for
-//       a known name, even while muted or with no audio device, so
-//       it proves the wiring fired — it is not a loudness meter.
+//       its sound. The count increments on every request for a known
+//       name, even while muted or with no audio device, so it proves
+//       the wiring fired — it is not a loudness meter.
 //
 //   All five sounds are synthesized live with WebAudio oscillators
 //   and filtered noise — zero audio files, zero network, no
 //   background music, no engine hum, no siren loop. Every sound is
 //   short (< ~1.1 s) and built from a different waveform / pitch
-//   envelope / duration so each is identifiable by ear:
+//   glide / duration so each is identifiable by ear:
 //     punch           square 160->70 Hz + low noise burst, 0.12 s
 //     knockout        double low thud, square+sine 220->40 Hz, 0.45 s
 //     missionComplete rising major triad, sine, 523->659->784 Hz, 0.6 s
@@ -48,13 +57,13 @@ export const AUDIO_SOUNDS = ['punch', 'knockout', 'missionComplete', 'failed', '
 const MASTER_VOLUME = 0.5;
 
 export function createAudio() {
-  let ctx = null;        // AudioContext, created only by init()/resume()
-  let master = null;     // master GainNode (mute lives here)
-  let noiseBuf = null;   // cached 1 s white-noise buffer, built with ctx
+  let ctx = null;      // AudioContext, created only by init()/resume()
+  let master = null;   // master GainNode (mute lives here)
+  let noiseBuf = null; // cached 1 s white-noise buffer, built with ctx
   let muted = false;
-  const counts = {};     // name -> play() requests, for test verification
+  const counts = {};   // name -> play() requests, for test verification
 
-  function audioCtor() {
+  function findAudioCtor() {
     try {
       const g = typeof globalThis !== 'undefined' ? globalThis : null;
       if (!g) return null;
@@ -74,7 +83,7 @@ export function createAudio() {
       return true;
     }
     try {
-      const Ctor = audioCtor();
+      const Ctor = findAudioCtor();
       if (!Ctor) return false;
       ctx = new Ctor();
       master = ctx.createGain();
@@ -113,7 +122,8 @@ export function createAudio() {
 
   // One oscillator voice: type, pitch glide, gain envelope (quick
   // attack, exponential decay to silence). t0 is ctx.currentTime.
-  function tone(t0, opts) {
+  // opts: { type, freq, freqEnd, dur, vol, attack }
+  function voice(t0, opts) {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = opts.type || 'sine';
@@ -133,7 +143,8 @@ export function createAudio() {
 
   // One filtered-noise burst: white noise through a lowpass whose
   // cutoff glides down, with the same quick-attack/decay envelope.
-  function noise(t0, opts) {
+  // opts: { filterFreq, filterEnd, dur, vol, attack }
+  function burst(t0, opts) {
     const src = ctx.createBufferSource();
     src.buffer = noiseBuf;
     src.loop = true;
@@ -161,40 +172,40 @@ export function createAudio() {
     // Short low thump: square wave dropping 160->70 Hz under a
     // lowpass noise burst — a fist landing, 0.12 s.
     punch(t0) {
-      tone(t0, { type: 'square', freq: 160, freqEnd: 70, dur: 0.1, vol: 0.45 });
-      noise(t0, { filterFreq: 900, filterEnd: 200, dur: 0.12, vol: 0.4 });
+      voice(t0, { type: 'square', freq: 160, freqEnd: 70, dur: 0.1, vol: 0.45 });
+      burst(t0, { filterFreq: 900, filterEnd: 200, dur: 0.12, vol: 0.4 });
     },
     // Two heavy thuds a beat apart: square 220->50 Hz plus a sine
     // 90->40 Hz boom underneath — a body hitting the ground, 0.45 s.
     knockout(t0) {
-      tone(t0, { type: 'square', freq: 220, freqEnd: 50, dur: 0.18, vol: 0.5 });
-      tone(t0, { type: 'sine', freq: 90, freqEnd: 40, dur: 0.25, vol: 0.6 });
-      tone(t0 + 0.14, { type: 'square', freq: 140, freqEnd: 45, dur: 0.2, vol: 0.45 });
-      tone(t0 + 0.14, { type: 'sine', freq: 70, freqEnd: 38, dur: 0.28, vol: 0.55 });
+      voice(t0, { type: 'square', freq: 220, freqEnd: 50, dur: 0.18, vol: 0.5 });
+      voice(t0, { type: 'sine', freq: 90, freqEnd: 40, dur: 0.25, vol: 0.6 });
+      voice(t0 + 0.14, { type: 'square', freq: 140, freqEnd: 45, dur: 0.2, vol: 0.45 });
+      voice(t0 + 0.14, { type: 'sine', freq: 70, freqEnd: 38, dur: 0.28, vol: 0.55 });
     },
     // Rising major triad, clean sine: C5 523 -> E5 659 -> G5 784 Hz,
-    // three 0.18 s notes staggered 0.09 s — a delivery done, 0.6 s.
+    // three 0.22 s notes staggered 0.09 s — a delivery done, 0.6 s.
     missionComplete(t0) {
       const notes = [523.25, 659.25, 783.99];
       notes.forEach((freq, i) => {
-        tone(t0 + i * 0.09, { type: 'sine', freq, dur: 0.22, vol: 0.45 });
-        tone(t0 + i * 0.09, { type: 'triangle', freq: freq * 2, dur: 0.15, vol: 0.12 });
+        voice(t0 + i * 0.09, { type: 'sine', freq, dur: 0.22, vol: 0.45 });
+        voice(t0 + i * 0.09, { type: 'triangle', freq: freq * 2, dur: 0.15, vol: 0.12 });
       });
     },
     // Two descending saw notes, 330 -> 220 -> 110 Hz through a
     // lowpass — a run ending badly, 0.9 s.
     failed(t0) {
-      tone(t0, { type: 'sawtooth', freq: 330, freqEnd: 220, dur: 0.4, vol: 0.3 });
-      tone(t0 + 0.38, { type: 'sawtooth', freq: 220, freqEnd: 110, dur: 0.5, vol: 0.3 });
-      tone(t0 + 0.38, { type: 'sine', freq: 110, freqEnd: 55, dur: 0.5, vol: 0.35 });
+      voice(t0, { type: 'sawtooth', freq: 330, freqEnd: 220, dur: 0.4, vol: 0.3 });
+      voice(t0 + 0.38, { type: 'sawtooth', freq: 220, freqEnd: 110, dur: 0.5, vol: 0.3 });
+      voice(t0 + 0.38, { type: 'sine', freq: 110, freqEnd: 55, dur: 0.5, vol: 0.35 });
     },
     // One long low drone: sine 110 -> 55 Hz for a full second, with
     // a soft low thud at the start — the screen going dark, 1.1 s.
     // Lower and longer than 'failed', so the two never blur.
     dead(t0) {
-      tone(t0, { type: 'sine', freq: 110, freqEnd: 55, dur: 1.05, vol: 0.5, attack: 0.02 });
-      tone(t0, { type: 'sine', freq: 55, freqEnd: 38, dur: 0.9, vol: 0.4, attack: 0.02 });
-      noise(t0, { filterFreq: 300, filterEnd: 80, dur: 0.35, vol: 0.25 });
+      voice(t0, { type: 'sine', freq: 110, freqEnd: 55, dur: 1.05, vol: 0.5, attack: 0.02 });
+      voice(t0, { type: 'sine', freq: 55, freqEnd: 38, dur: 0.9, vol: 0.4, attack: 0.02 });
+      burst(t0, { filterFreq: 300, filterEnd: 80, dur: 0.35, vol: 0.25 });
     },
   };
 
@@ -215,6 +226,15 @@ export function createAudio() {
     }
   }
 
+  // Named one-shot entry points, one per game event. Each is just
+  // play() with the matching name, so the counts and the mute rules
+  // stay in one place.
+  function playPunch() { return play('punch'); }
+  function playKnockout() { return play('knockout'); }
+  function playMissionComplete() { return play('missionComplete'); }
+  function playFailed() { return play('failed'); }
+  function playDead() { return play('dead'); }
+
   // Mute switch. Muted play() calls stay counted no-ops; unmuting
   // restores the master gain. Returns the new muted state.
   function setMuted(m) {
@@ -225,6 +245,11 @@ export function createAudio() {
       // A dead context keeps the flag; sound stays off either way.
     }
     return muted;
+  }
+
+  // Flip the mute flag and apply it. Returns the new muted state.
+  function toggleMute() {
+    return setMuted(!muted);
   }
 
   function isMuted() { return muted; }
@@ -255,7 +280,13 @@ export function createAudio() {
     init,
     resume,
     play,
+    playPunch,
+    playKnockout,
+    playMissionComplete,
+    playFailed,
+    playDead,
     setMuted,
+    toggleMute,
     isMuted,
     isReady,
     getPlayCount,

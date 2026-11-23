@@ -114,7 +114,6 @@ export function createCombat(scene, city, rng, options) {
   const spawn = (city && city.spawn) || { x: 0, z: 0 };
   const addWanted = options && typeof options.addWanted === 'function' ? options.addWanted : null;
   const onKnockout = options && typeof options.onKnockout === 'function' ? options.onKnockout : null;
-  // Slice 9: fired once per punch that lands (wired to audio.play('punch')).
   const onPunch = options && typeof options.onPunch === 'function' ? options.onPunch : null;
 
   let health = PLAYER_MAX_HP;
@@ -264,8 +263,8 @@ export function createCombat(scene, city, rng, options) {
       bestD = d;
     }
     if (!best) return;
-    best.hp -= PUNCH_DAMAGE;
     if (onPunch) onPunch(best);
+    best.hp -= PUNCH_DAMAGE;
     best.flashTimer = FLASH_TIME;
     best.swingTimer = 0; // the hit interrupts any swing of their own
     const kx = best.x - px, kz = best.z - pz;
