@@ -48,7 +48,7 @@ const { cars } = createCars(scene, city, rng);
 const traffic = createTraffic(scene, city, rng);
 const { peds, update: updatePeds } = createPedestrians(scene, city, rng);
 const police = createPolice(scene, city, rng);
-// Slice 9b: procedural sound — AudioContext is created only by
+// Slice 9c: procedural sound — AudioContext is created only by
 // audio.init() from a user gesture (see startFromTitle); before
 // that every play() is a counted silent no-op.
 const audio = createAudio();
@@ -98,9 +98,9 @@ const death = createDeath({
   resetOpponents: () => combat.resetOpponents(),
   resetMission: () => missions.resetCurrent(),
   getStats: () => ({ cash, knockouts: combat.getKnockouts(), completed: missions.getCompleted() }),
-  // Slice 9b: death screen sound — 'failed' for DELIVERY FAILED,
+  // Slice 9c: death screen sound — 'failed' for DELIVERY FAILED,
   // 'dead' for OUT COLD.
-  onDeath: (kind) => { audio.play(kind === 'dead' ? 'dead' : 'failed'); },
+  onDeath: (kind) => { if (kind === 'dead') audio.playDead(); else audio.playFailed(); },
 });
 
 // Slice 2 driving state: on foot until E enters a nearby car.

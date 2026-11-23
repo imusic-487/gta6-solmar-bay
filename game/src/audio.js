@@ -1,4 +1,4 @@
-// Solmar Bay — procedural sound effects (slice 9, redo 9b).
+// Solmar Bay — procedural sound effects (slice 9, redo 9c).
 //
 //   const audio = createAudio();
 //   Returns { init, resume, play, playPunch, playKnockout,
@@ -27,8 +27,7 @@
 //     - playDead() — death onDeath callback when kind is 'dead'
 //       (OUT COLD screen).
 //     - setMuted(muted) / toggleMute() — the M key handler in main.js
-//       (currently a stub near line 175); this module never listens
-//       for keys itself.
+//       (currently a stub); this module never listens for keys itself.
 //     - getPlayCount(name) — how many times a sound was requested;
 //       used by Playwright checks to verify each event really fires
 //       its sound. The count increments on every request for a known
@@ -52,6 +51,7 @@
 //   silently, never throws, and never touches the game loop. A
 //   missing or suspended context only means silence, never an error.
 
+// The five sound names, in the order the game events happen in a run.
 export const AUDIO_SOUNDS = ['punch', 'knockout', 'missionComplete', 'failed', 'dead'];
 
 const MASTER_VOLUME = 0.5;
@@ -63,6 +63,9 @@ export function createAudio() {
   let muted = false;
   const counts = {};   // name -> play() requests, for test verification
 
+  // Find the AudioContext constructor without assuming a browser:
+  // headless / non-browser runtimes simply have none, and that is
+  // a normal "no audio" outcome, not an error.
   function findAudioCtor() {
     try {
       const g = typeof globalThis !== 'undefined' ? globalThis : null;
