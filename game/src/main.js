@@ -16,6 +16,7 @@ import { createInput } from './input.js';
 import { createPlayer, createPlayerMesh } from './player.js';
 import { createCamera } from './camera.js';
 import { createHUD } from './hud.js';
+import { createAudio } from './audio.js';
 import { setupShot } from './shots.js';
 
 const container = document.getElementById('game-container');
@@ -47,13 +48,18 @@ const { cars } = createCars(scene, city, rng);
 const traffic = createTraffic(scene, city, rng);
 const { peds, update: updatePeds } = createPedestrians(scene, city, rng);
 const police = createPolice(scene, city, rng);
+// Slice 9: procedural sound — AudioContext is created only by
+// audio.init() from a user gesture (see startFromTitle); before
+// that every play() is a counted silent no-op.
+const audio = createAudio();
 // Slice 5: Bayline courier missions — payout lands here, once per mission.
-const missions = createMissions(scene, city, { onComplete: (m) => { cash += m.reward; persistSave(); } });
+const missions = createMissions(scene, city, { onComplete: (m) => { cash += m.reward; persistSave(); audio.play('missionComplete'); } });
 // Slice 6: street melee — first punch on an opponent costs a wanted star
 // (via police), a knockout pays $20 into cash, once per opponent.
 const combat = createCombat(scene, city, rng, {
   addWanted: (n) => police.addWanted(n),
-  onKnockout: (r) => { cash += r.reward; persistSave(); },
+  onKnockout: (r) => { cash += r.reward; persistSave(); audio.play('knockout'); },
+  onPunch: () => audio.play('punch'),
 });
 
 const player = createPlayer(city.spawn, city.colliders, city.bounds);
@@ -92,6 +98,9 @@ const death = createDeath({
   resetOpponents: () => combat.resetOpponents(),
   resetMission: () => missions.resetCurrent(),
   getStats: () => ({ cash, knockouts: combat.getKnockouts(), completed: missions.getCompleted() }),
+  // Slice 9: death screen sound — 'failed' for DELIVERY FAILED,
+  // 'dead' for OUT COLD.
+  onDeath: (kind) => { audio.play(kind === 'dead' ? 'dead' : 'failed'); },
 });
 
 // Slice 2 driving state: on foot until E enters a nearby car.
@@ -112,6 +121,7 @@ const game = {
   missions,
   combat,
   death,
+  audio,
   get driving() { return driving; },
   get currentCar() { return currentCar; },
   hud,
@@ -136,6 +146,7 @@ function persistSave() {
 // roam when the save holds 3/3). A missing or damaged save just
 // starts a fresh run — load() returns null and nothing is applied.
 function continueGame() {
+  audio.init();
   const s = save.load();
   if (s) {
     cash = s.cash;
@@ -153,6 +164,7 @@ function continueGame() {
 }
 
 function newGame() {
+  audio.init();
   save.clearSave();
   setState('play');
 }
@@ -161,6 +173,7 @@ function newGame() {
 // buttons) continues a saved run when one exists, else starts fresh.
 function startFromTitle() {
   if (game.state !== 'title') return;
+  audio.init();
   if (save.hasSave()) continueGame();
   else newGame();
 }
@@ -172,7 +185,7 @@ hud.setObjective('Explore Solmar Bay');
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Enter' && game.state === 'title') startFromTitle();
-  if (e.code === 'KeyM') { /* audio stub — sound arrives in a later slice */ }
+  if (e.code === 'KeyM') { audio.setMuted(!audio.isMuted()); }
 });
 titleEl.addEventListener('click', () => {
   if (game.state === 'title') startFromTitle();
