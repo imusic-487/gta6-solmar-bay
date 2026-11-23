@@ -34,7 +34,7 @@ export function createHUD() {
     if (objectiveEl) objectiveEl.textContent = text;
   }
 
-  function drawMinimap(playerPos, city) {
+  function drawMinimap(playerPos, city, target) {
     if (!mapCtx || !playerPos) return;
     mapCtx.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
     mapCtx.fillStyle = '#0b1826';
@@ -55,20 +55,21 @@ export function createHUD() {
         const h = Math.max(2, (b.d / spanZ) * MAP_SIZE);
         mapCtx.fillRect(toX(b.x - b.w / 2), toY(b.z - b.d / 2), w, h);
       }
-      // Mission marker: a fixed central block, drawn as a gold diamond.
-      const mark = city.blocks[Math.min(21, city.blocks.length - 1)];
-      if (mark) {
-        const mx = toX(mark.x);
-        const my = toY(mark.z);
-        mapCtx.fillStyle = '#ffc93f';
-        mapCtx.beginPath();
-        mapCtx.moveTo(mx, my - 7);
-        mapCtx.lineTo(mx + 7, my);
-        mapCtx.lineTo(mx, my + 7);
-        mapCtx.lineTo(mx - 7, my);
-        mapCtx.closePath();
-        mapCtx.fill();
-      }
+    }
+
+    // Mission marker (slice 8): a gold diamond at the passed target
+    // ({x, z}, e.g. missions.getCurrentTarget()); hidden when null.
+    if (target && typeof target.x === 'number' && typeof target.z === 'number') {
+      const mx = toX(target.x);
+      const my = toY(target.z);
+      mapCtx.fillStyle = '#ffc93f';
+      mapCtx.beginPath();
+      mapCtx.moveTo(mx, my - 7);
+      mapCtx.lineTo(mx + 7, my);
+      mapCtx.lineTo(mx, my + 7);
+      mapCtx.lineTo(mx - 7, my);
+      mapCtx.closePath();
+      mapCtx.fill();
     }
 
     // Player dot, bright with a dark rim so it reads on any block.
@@ -102,7 +103,10 @@ export function createHUD() {
     const health = state && typeof state.health === 'number' ? Math.max(0, Math.round(state.health)) : 100;
     if (healthEl) healthEl.textContent = '♥ ' + health;
     if (objectiveEl) objectiveEl.textContent = objective;
-    drawMinimap(state ? state.playerPos : null, state ? state.city : null);
+    // Slice 8: minimap diamond follows the passed mission target —
+    // hud.update({ ..., target: missions.getCurrentTarget() }); null
+    // (or omitted) hides the diamond, e.g. once the route is done.
+    drawMinimap(state ? state.playerPos : null, state ? state.city : null, state ? state.target : null);
   }
 
   return { update, setObjective };

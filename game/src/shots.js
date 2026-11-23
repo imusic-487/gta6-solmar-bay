@@ -19,6 +19,15 @@ export function setupShot(name, ctx) {
     return;
   }
 
+  if (name === 'title-continue') {
+    // Slice 8 title shot: same skyline framing as 'title', with the
+    // title overlay up — the shoot driver seeds a save in
+    // localStorage before load, so the Continue button (with its
+    // "$ · n/3 · KO n" summary) is showing. State stays 'title'.
+    camera.setPose(V(150, 95, 215), V(-10, 18, -30));
+    return;
+  }
+
   if (name === 'street') {
     // Street level, just behind and above the player, looking south down the road.
     placePlayer();
@@ -130,6 +139,34 @@ export function setupShot(name, ctx) {
       placePlayer();
     }
     setState('play');
+    return;
+  }
+
+  if (name === 'combat-close') {
+    // Slice 8 re-frame of the combat shot: Builder B moved the
+    // opponent spawn ring to 12-15 m, so the old fixed 'combat'
+    // pose (Rocco 2.5 m ahead of the player) now frames empty
+    // street with the opponents at the frame edges. This branch
+    // finds the nearest living opponent at shot time and mirrors
+    // the old geometry onto them — player 2.5 m north of the
+    // opponent, camera further north looking south — so the fight
+    // is centred. The shoot driver taps F just before the shot.
+    const opps = (typeof window !== 'undefined' && window.__game && window.__game.combat)
+      ? window.__game.combat.getOpponents().filter((o) => !o.knockedOut)
+      : [];
+    let ox = 3.10, oz = 0.44; // fallback: the old slice-6 Rocco spot
+    if (opps.length) {
+      let best = opps[0], bd = Infinity;
+      for (const o of opps) {
+        const d = o.x * o.x + o.z * o.z;
+        if (d < bd) { bd = d; best = o; }
+      }
+      ox = best.x; oz = best.z;
+    }
+    player.pos.set(ox, 0, oz - 2.5);
+    if (player.mesh) player.mesh.position.copy(player.pos);
+    setState('play');
+    camera.setPose(V(ox, 4.5, oz - 7.5), V(ox, 1.3, oz + 1.5));
     return;
   }
 

@@ -11,6 +11,7 @@ import { createPolice } from './police.js';
 import { createMissions } from './missions.js';
 import { createCombat } from './combat.js';
 import { createDeath } from './death.js';
+import { createSave } from './save.js';
 import { createInput } from './input.js';
 import { createPlayer, createPlayerMesh } from './player.js';
 import { createCamera } from './camera.js';
@@ -19,6 +20,17 @@ import { setupShot } from './shots.js';
 
 const container = document.getElementById('game-container');
 const titleEl = document.getElementById('title');
+
+// Slice 8: the save lives in localStorage (solmar-bay-save-v1);
+// hasSave() decides whether the title screen offers Continue.
+const save = createSave();
+const continueBtn = document.getElementById('continue-btn');
+const newGameBtn = document.getElementById('newgame-btn');
+if (save.hasSave() && continueBtn) {
+  const s = save.load();
+  if (s) continueBtn.textContent = 'Continue — $' + s.cash + ' · ' + s.completed + '/3 · KO ' + s.knockouts;
+  continueBtn.style.display = '';
+}
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -36,12 +48,12 @@ const traffic = createTraffic(scene, city, rng);
 const { peds, update: updatePeds } = createPedestrians(scene, city, rng);
 const police = createPolice(scene, city, rng);
 // Slice 5: Bayline courier missions — payout lands here, once per mission.
-const missions = createMissions(scene, city, { onComplete: (m) => { cash += m.reward; } });
+const missions = createMissions(scene, city, { onComplete: (m) => { cash += m.reward; persistSave(); } });
 // Slice 6: street melee — first punch on an opponent costs a wanted star
 // (via police), a knockout pays $20 into cash, once per opponent.
 const combat = createCombat(scene, city, rng, {
   addWanted: (n) => police.addWanted(n),
-  onKnockout: (r) => { cash += r.reward; },
+  onKnockout: (r) => { cash += r.reward; persistSave(); },
 });
 
 const player = createPlayer(city.spawn, city.colliders, city.bounds);
@@ -86,6 +98,7 @@ const death = createDeath({
 let driving = false;
 let currentCar = null;
 let prevE = false;
+let saveAfterRespawn = false; // Slice 8: set while a death screen is up, saved once the respawn lands.
 
 const game = {
   state: 'title',
@@ -112,14 +125,57 @@ function setState(s) {
   else titleEl.style.display = 'flex';
 }
 
+// Slice 8: persist the run after a mission, a knockout, or a respawn.
+function persistSave() {
+  save.save({ completed: missions.getCompleted(), cash, knockouts: combat.getKnockouts() });
+}
+
+// Slice 8: Continue restores cash, knockouts and the finished count,
+// puts the player back at spawn with full health and no wanted heat,
+// and resumes the route from the first unfinished delivery (free
+// roam when the save holds 3/3). A missing or damaged save just
+// starts a fresh run — load() returns null and nothing is applied.
+function continueGame() {
+  const s = save.load();
+  if (s) {
+    cash = s.cash;
+    missions.setCompleted(s.completed);
+    combat.setKnockouts(s.knockouts);
+    combat.resetHealth();
+    health = 100;
+    player.pos.set(city.spawn.x, 0, city.spawn.z);
+    player.mesh.position.copy(player.pos);
+    player.mesh.visible = true;
+    police.clearWanted();
+    hud.setObjective(missions.getObjectiveText());
+  }
+  setState('play');
+}
+
+function newGame() {
+  save.clearSave();
+  setState('play');
+}
+
+// Slice 8: starting from the title (Enter, or a click outside the
+// buttons) continues a saved run when one exists, else starts fresh.
+function startFromTitle() {
+  if (game.state !== 'title') return;
+  if (save.hasSave()) continueGame();
+  else newGame();
+}
+
+if (continueBtn) continueBtn.addEventListener('click', (e) => { e.stopPropagation(); continueGame(); });
+if (newGameBtn) newGameBtn.addEventListener('click', (e) => { e.stopPropagation(); newGame(); });
+
 hud.setObjective('Explore Solmar Bay');
 
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Enter' && game.state === 'title') setState('play');
+  if (e.code === 'Enter' && game.state === 'title') startFromTitle();
   if (e.code === 'KeyM') { /* audio stub — sound arrives in a later slice */ }
 });
 titleEl.addEventListener('click', () => {
-  if (game.state === 'title') setState('play');
+  if (game.state === 'title') startFromTitle();
 });
 
 window.addEventListener('resize', () => {
@@ -143,6 +199,10 @@ function frame() {
   // headless frame rate is far below 60 fps, and a fixed dt would
   // drain the respawn protection in slow motion).
   death.update(dt);
+
+  // Slice 8: save once when a respawn lands (death protection starts).
+  if (death.isDead()) saveAfterRespawn = true;
+  else if (death.isProtected() && saveAfterRespawn) { saveAfterRespawn = false; persistSave(); }
 
   // Slice 7: while a fail/death screen is up the whole gameplay
   // block is skipped — player, traffic, peds, police, combat and
@@ -220,7 +280,7 @@ function frame() {
     cameraRig.update(dt, player, 0, 0);
   }
 
-  hud.update({ cash, wanted, health, playerPos: driving && currentCar ? currentCar : player.pos, yaw: player.yaw, city, driving, speed: driving && currentCar ? currentCar.speed : 0 });
+  hud.update({ cash, wanted, health, playerPos: driving && currentCar ? currentCar : player.pos, yaw: player.yaw, city, driving, speed: driving && currentCar ? currentCar.speed : 0, target: missions.getCurrentTarget() });
 
   renderer.render(scene, cameraRig.camera);
 

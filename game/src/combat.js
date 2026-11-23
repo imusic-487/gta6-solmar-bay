@@ -19,7 +19,10 @@
 //   and swing inside ATTACK_RANGE.
 //   getHealth() — player health, 100 at start, reduced only by
 //   opponent hits (clamped at 0, no regen). getKnockouts() —
-//   knockouts so far (0..3). getOpponents() — copies of
+//   knockouts so far (0..3). setKnockouts(n) (slice 8) — restore a
+//   saved knockout count; the first n opponents are put back down
+//   as knocked out (flat, paid), so a loaded run cannot re-earn
+//   their rewards. getOpponents() — copies of
 //   { name, x, z, hp, maxHp, knockedOut }.
 //   resetHealth() (slice 7) — health back to 100, punch state cleared
 //   so a held F key cannot fire a punch the instant the player gets
@@ -117,18 +120,20 @@ export function createCombat(scene, city, rng, options) {
   let punchTimer = 0; // counts down to the next punch the player may throw
   let prevF = false;  // edge detection: one press, one punch attempt
 
-  // Spawn on the road / sidewalk ring around spawn: a ring 4-7 m out,
-  // retrying angles until the spot is clear of buildings. Spawn (0,0)
-  // is a road intersection, so the first tries almost always land.
+  // Spawn on the road / sidewalk ring around spawn: a ring 12-15 m
+  // out, outside the 8 m aggro range, so the player is not swarmed
+  // on arrival — retrying angles until the spot is clear of
+  // buildings. Spawn (0,0) is a road intersection, so the first
+  // tries almost always land.
   function spawnSpot() {
     for (let attempt = 0; attempt < 10; attempt++) {
       const angle = nextRand() * Math.PI * 2;
-      const dist = 4 + nextRand() * 3;
+      const dist = 12 + nextRand() * 3;
       const x = spawn.x + Math.sin(angle) * dist;
       const z = spawn.z + Math.cos(angle) * dist;
       if (groundIsClear(x, z, colliders, BODY_RADIUS + 0.5)) return { x, z };
     }
-    return { x: spawn.x + 5, z: spawn.z };
+    return { x: spawn.x + 13, z: spawn.z };
   }
 
   const opponents = [];
@@ -349,6 +354,27 @@ export function createCombat(scene, city, rng, options) {
   function getHealth() { return health; }
   function getKnockouts() { return knockouts; }
 
+  // Slice 8 Continue: restore a saved knockout count. The first n
+  // opponents are put back down exactly as a knockout leaves them
+  // (flat on the ground, paid, no second reward and no second
+  // wanted star), so a loaded run cannot re-earn a reward for an
+  // opponent already counted. Only the count is stored, so which
+  // opponents fell is not restored — the first n by roster order.
+  function setKnockouts(n) {
+    const v = typeof n === 'number' && Number.isFinite(n) ? Math.floor(n) : 0;
+    const count = Math.max(0, Math.min(COUNT, v));
+    knockouts = count;
+    opponents.forEach((opp, i) => {
+      if (i >= count) return;
+      opp.knockedOut = true;
+      opp.paid = true;
+      opp.hp = 0;
+      opp.mesh.rotation.x = -Math.PI / 2;
+      opp.mesh.rotation.y = opp.heading;
+      opp.mesh.position.set(opp.x, 0.35, opp.z);
+    });
+  }
+
   // Slice 7 respawn reset: full health, and the punch edge state
   // cleared so a held F key cannot fire the instant the player
   // gets back up.
@@ -361,9 +387,9 @@ export function createCombat(scene, city, rng, options) {
   // Slice 7 respawn reset: a living opponent re-rolls to a fresh spot
   // on a 20-30 m ring around spawn — far outside the 8 m aggro range,
   // so it cannot close in and kill the player again inside the 5 s
-  // respawn protection. (Its original spawn spot is 4-7 m out, inside
-  // aggro range, so putting it literally back would re-trigger the
-  // fight at once.) hp is untouched, flagged/paid stay as they were,
+  // respawn protection. (The opening spawn ring is 12-15 m out, also
+  // outside aggro range; the respawn ring stays 20-30 m for extra
+  // distance after a death.) hp is untouched, flagged/paid stay as they were,
   // and a knocked-out opponent stays down exactly as it fell.
   function resetSpot() {
     for (let attempt = 0; attempt < 12; attempt++) {
@@ -401,5 +427,5 @@ export function createCombat(scene, city, rng, options) {
     }));
   }
 
-  return { update, getHealth, getKnockouts, getOpponents, resetHealth, resetOpponents };
+  return { update, getHealth, getKnockouts, getOpponents, resetHealth, resetOpponents, setKnockouts };
 }
